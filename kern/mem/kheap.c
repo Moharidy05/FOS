@@ -183,29 +183,74 @@ void kfree(void* virtual_address)
 //=================================
 // [3] FIND VA OF GIVEN PA:
 //=================================
-unsigned int kheap_virtual_address(unsigned int physical_address)
-{
-	//TODO: [PROJECT'25.GM#2] KERNEL HEAP - #3 kheap_virtual_address
+
+	//TODO: [PROJECT'25.GM#2] KERNEL HEAP - #3 kheap_virtual_address_unlocked
 	//-... .- -.. .-. / --.. --- -... .-. -.--
 	//Your code is here
+	unsigned int kheap_virtual_address_unlocked(unsigned int physical_address)
+	{
+		page_info *pi = pa2page(physical_address);
+
+		if (pi == NULL || pi->virtual_address == 0) {
+			return 0;
+		}
+
+		uint32 page_va = pi->virtual_address;
+
+		if (page_va < KERNEL_HEAP_START || page_va >= KERNEL_HEAP_MAX) {
+			return 0;
+		}
+
+		uint32 page_offset = physical_address & (PAGE_SIZE - 1);
+		return page_va + page_offset;
+	}
+
+	unsigned int kheap_virtual_address(unsigned int physical_address)
+	{
+		//TODO: [PROJECT'25.GM#2] KERNEL HEAP - #3 kheap_virtual_address
+
+		kspin_lock(&kheap_lock);
+		unsigned int va = kheap_virtual_address_unlocked(physical_address);
+		kspin_unlock(&kheap_lock);
+		return va;
+
+		/*EFFICIENT IMPLEMENTATION ~O(1) IS REQUIRED */
+	}
 	//Comment the following line
-	panic("kheap_virtual_address() is not implemented yet...!!");
+	//panic("kheap_virtual_address() is not implemented yet...!!");
 
 	/*EFFICIENT IMPLEMENTATION ~O(1) IS REQUIRED */
-}
+
 
 //=================================
 // [4] FIND PA OF GIVEN VA:
 //=================================
-unsigned int kheap_physical_address(unsigned int virtual_address)
-{
-	//TODO: [PROJECT'25.GM#2] KERNEL HEAP - #4 kheap_physical_address
-	//Your code is here
-	//Comment the following line
-	panic("kheap_physical_address() is not implemented yet...!!");
+	unsigned int kheap_physical_address_unlocked(unsigned int virtual_address)
+	{
+		uint32* pte_ptr = NULL;
+		get_page_table(ptr_page_directory, (void*)virtual_address, &pte_ptr);
 
-	/*EFFICIENT IMPLEMENTATION ~O(1) IS REQUIRED */
-}
+		if (pte_ptr == NULL || (*pte_ptr & PERM_PRESENT) == 0) {
+			return 0;
+		}
+
+		uint32 page_pa = PTE_ADDR(*pte_ptr);
+		uint32 page_offset = virtual_address & (PAGE_SIZE - 1);
+		return page_pa + page_offset;
+	}
+
+
+	unsigned int kheap_physical_address(unsigned int virtual_address)
+	{
+		//TODO: [PROJECT'25.GM#2] KERNEL HEAP - #4 kheap_physical_address
+
+		kspin_lock(&kheap_lock);
+		unsigned int pa = kheap_physical_address_unlocked(virtual_address);
+		kspin_unlock(&kheap_lock);
+		return pa;
+
+		/*EFFICIENT IMPLEMENTATION ~O(1) IS REQUIRED */
+	}
 
 //=================================================================================//
 //============================== BONUS FUNCTION ===================================//
@@ -220,12 +265,99 @@ unsigned int kheap_physical_address(unsigned int virtual_address)
 //	A call with virtual_address = null is equivalent to kmalloc().
 //	A call with new_size = zero is equivalent to kfree().
 
-extern __inline__ uint32 get_block_size(void *va);
+	extern __inline__ uint32 get_block_size(void *va);
 
-void *krealloc(void *virtual_address, uint32 new_size)
-{
-	//TODO: [PROJECT'25.BONUS#2] KERNEL REALLOC - krealloc
-	//Your code is here
-	//Comment the following line
-	panic("krealloc() is not implemented yet...!!");
-}
+	void *krealloc(void *virtual_address, uint32 new_size)
+	{
+		//TODO: [PROJECT'25.BONUS#2] KERNEL REALLOC - krealloc
+
+
+		kspin_lock(&kheap_lock);
+
+		void* new_ptr = NULL;
+
+		// case 1 VA = null equivalent to kmalloc()
+		//call the locked kmalloc adn unlocking it
+		if (virtual_address == NULL) {
+			kspin_unlock(&kheap_lock);
+			return kmalloc(new_size);
+		}
+
+		//case 2 new_size = zero is equivalent to kfree()
+		//call the locked kfree() adn unlocking it
+		if (new_size == 0) {
+			kspin_unlock(&kheap_lock); // Release lock before calling kfree
+			kfree(virtual_address);    // kfree handles its own locking
+			return NULL;
+		}
+
+		//get the size of the old block(must be locked)
+		uint32 old_size = get_block_size(virtual_address);
+
+		//case 3 Shrinking or same size
+		if (new_size <= old_size) {
+			kspin_unlock(&kheap_lock);
+			return virtual_address;
+		}
+
+		//cse 4 Growing
+
+		//dynamic allocator
+		if (virtual_address >= (void*)KERNEL_HEAP_START && virtual_address < (void*)dynAllocEnd)
+		{
+			new_ptr = realloc_block(virtual_address, new_size, kheap_strategy);
+		}
+		//fast page allocator
+		else if (virtual_address >= (void*)kheapPageAllocStart && virtual_address < (void*)kheapPageAllocBreak)
+		{
+			//use unlocked version since we are holding the lock
+			unsigned int page_pa = kheap_physical_address_unlocked((uint32)virtual_address);
+			page_info* pi = pa2page(page_pa);
+			uint32 old_num_pages = pi->prev_next_info.num_of_pages;
+			uint32 old_alloc_size = old_num_pages * PAGE_SIZE;
+
+			uint32 new_rounded_size = ROUNDUP(new_size, PAGE_SIZE);
+			uint32 new_num_pages = new_rounded_size / PAGE_SIZE;
+
+			//checkingif we can extend in-place
+			void* end_of_old_block = (void*)((uint32)virtual_address + old_alloc_size);
+
+			if (end_of_old_block == (void*)kheapPageAllocBreak)
+			{
+				uint32 diff_size = new_rounded_size - old_alloc_size;
+
+				if (kheapPageAllocBreak + diff_size <= KERNEL_HEAP_MAX)
+				{
+					for (uint32 va = kheapPageAllocBreak; va < kheapPageAllocBreak + diff_size; va += PAGE_SIZE) {
+						get_page((void*)va);
+					}
+					kheapPageAllocBreak += diff_size;
+					pi->prev_next_info.num_of_pages = new_num_pages;
+					new_ptr = virtual_address; // Success!
+				}
+			}
+
+			//couldn't grow in-place.
+			// We must release the lock to call kmalloc/kfree
+			if (new_ptr == NULL)
+			{
+				kspin_unlock(&kheap_lock); //release the lock
+
+				new_ptr = kmalloc(new_size); //call thelocked version
+				if (new_ptr == NULL) {
+					return NULL; //failed allocating
+				}
+
+				memcpy(new_ptr, virtual_address, old_size);
+				kfree(virtual_address); //call the locked version
+
+				return new_ptr; //return without unlocking
+			}
+		}
+		else {
+			panic("krealloc: address not in kernel heap range!");
+		}
+
+		kspin_unlock(&kheap_lock);
+		return new_ptr;
+	}
