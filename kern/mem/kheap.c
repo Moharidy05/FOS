@@ -7,6 +7,12 @@
 #include <kern/mem/memory_manager.h>
 #include "../conc/kspinlock.h"
 
+// Spinlock for protecting the kernel heap
+static struct kspinlock kheap_lock;
+
+
+
+
 //==================================================================================//
 //============================== GIVEN FUNCTIONS ===================================//
 //==================================================================================//
@@ -16,6 +22,8 @@
 //==============================================
 //TODO: [PROJECT'25.GM#2] KERNEL HEAP - #0 kheap_init [GIVEN]
 //Remember to initialize locks (if any)
+//spinlocks initialization
+
 void kheap_init()
 {
 	//==================================================================================
@@ -29,6 +37,8 @@ void kheap_init()
 	}
 	//==================================================================================
 	//==================================================================================
+	//kheap spinlock initialization
+	kspinlock_init(&kheap_lock, "kheap_lock");
 }
 
 //==============================================
@@ -60,11 +70,65 @@ void* kmalloc(unsigned int size)
 {
 	//TODO: [PROJECT'25.GM#2] KERNEL HEAP - #1 kmalloc
 	//Your code is here
+	//acquire the lock to ensure mutual exclusion
+		kspin_lock(&kheap_lock);
+
+		void* ret_va = NULL;
+
+		if (size == 0) {
+			kspin_unlock(&kheap_lock);
+			return NULL;
+		}
 	//Comment the following line
-	kpanic_into_prompt("kmalloc() is not implemented yet...!!");
+	//kpanic_into_prompt("kmalloc() is not implemented yet...!!");
 
 	//TODO: [PROJECT'25.BONUS#3] FAST PAGE ALLOCATOR
-}
+		if (size >= PAGE_SIZE)
+			{
+				uint32 rounded_size = ROUNDUP(size, PAGE_SIZE);
+				uint32 num_pages = rounded_size / PAGE_SIZE;
+
+				//check if there is enough space in the page-allocator
+				if (kheapPageAllocBreak + rounded_size > KERNEL_HEAP_MAX) {
+					kspin_unlock(&kheap_lock);
+					return NULL;
+				}
+
+				//VA we will return (start of the allocated block)
+				ret_va = (void*)kheapPageAllocBreak;
+				page_info* first_pi = NULL;
+
+				//allocation and mapping of all required pages
+				for (int i = 0; i < num_pages; i++)
+				{
+					void* va_current = (void*)(kheapPageAllocBreak + (i * PAGE_SIZE));
+
+					//get_page() allocates a physical frame and maps it at va_current
+					get_page(va_current); //panics on failure
+
+					if (i == 0) {
+						unsigned int page_pa = kheap_physical_address_unlocked((uint32)va_current);
+						first_pi = pa2page(page_pa);
+					}
+				}
+
+				// Store the number of allocated pages
+				if (first_pi != NULL) {
+					first_pi->prev_next_info.num_of_pages = num_pages;
+				}
+				kheapPageAllocBreak += rounded_size;
+			}
+			else
+			{
+				//if size < pagezize use the dynamic allocator
+				ret_va = alloc_block(size, kheap_strategy);
+			}
+
+			//release the lock
+			kspin_unlock(&kheap_lock);
+			return ret_va;
+		}
+
 
 //=================================
 // [2] FREE SPACE FROM KERNEL HEAP:
@@ -73,6 +137,45 @@ void kfree(void* virtual_address)
 {
 	//TODO: [PROJECT'25.GM#2] KERNEL HEAP - #2 kfree
 	//Your code is here
+	kspin_lock(&kheap_lock);
+		if (virtual_address == NULL) {
+			kspin_unlock(&kheap_lock);
+			return;
+		}
+
+		//checking if the VA is in the dynamic allocator
+		if (virtual_address >= (void*)KERNEL_HEAP_START && virtual_address < (void*)dynAllocEnd)
+		{
+			free_block(virtual_address);
+		}
+		//checking if the VA is in the fast page allocator
+		else if (virtual_address >= (void*)kheapPageAllocStart && virtual_address < (void*)kheapPageAllocBreak)
+		{
+			//VA must be page-aligned
+			if (ROUNDDOWN((uint32)virtual_address, PAGE_SIZE) != (uint32)virtual_address) {
+				panic("kfree: fast page allocator address not page-aligned!");
+			}
+
+			//using the unlcoked version as the lock is already held ( spinlocked haha# :) )
+			unsigned int page_pa = kheap_physical_address_unlocked((uint32)virtual_address);
+			page_info* first_pi = pa2page(page_pa);
+
+			if (first_pi == NULL) {
+				panic("kfree: no page_info for fast allocated block!");
+			}
+
+			uint32 num_pages = first_pi->prev_next_info.num_of_pages;
+
+			// Unmap and free all pages in this block
+			for (int i = 0; i < num_pages; i++)
+			{
+				void* va_current = (void*)((uint32)virtual_address + (i * PAGE_SIZE));
+				return_page(va_current); // unmaps and frees the frame
+			}
+		}
+
+		// Release the lock
+		kspin_unlock(&kheap_lock);
 	//Comment the following line
 	panic("kfree() is not implemented yet...!!");
 }
@@ -83,6 +186,7 @@ void kfree(void* virtual_address)
 unsigned int kheap_virtual_address(unsigned int physical_address)
 {
 	//TODO: [PROJECT'25.GM#2] KERNEL HEAP - #3 kheap_virtual_address
+	//-... .- -.. .-. / --.. --- -... .-. -.--
 	//Your code is here
 	//Comment the following line
 	panic("kheap_virtual_address() is not implemented yet...!!");
