@@ -7,6 +7,12 @@
 #include <kern/mem/memory_manager.h>
 #include "../conc/kspinlock.h"
 
+// Definitions for the global heap variables declared in kheap.h
+uint32 kheapPageAllocStart;
+uint32 kheapPageAllocBreak;
+uint32 kheapPlacementStrategy;
+int numOfKheapVACalls = 0;
+
 // Spinlock for protecting the kernel heap
 static struct kspinlock kheap_lock;
 
