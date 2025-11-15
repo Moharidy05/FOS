@@ -1,8 +1,9 @@
 /*
  * dynamic_allocator.c
  *
- *  Created on: Sep 21, 2023
- *      Author: HP
+ * Created on: Sep 21, 2023
+ * Author: HP
+ * edited by: the FCIS KB :) on NOV 2025
  */
 #include <inc/assert.h>
 #include <inc/string.h>
@@ -38,9 +39,9 @@ __inline__ struct PageInfoElement * to_page_info(uint32 va)
 //==================================================================================//
 //============================ REQUIRED FUNCTIONS ==================================//
 //==================================================================================//
-uint32 dynAllocEnd;
+
 //==================================
-// [1] INITIALIZE DYNAMIC ALLOCATOR:
+// [11] INITIALIZE DYNAMIC ALLOCATOR:
 //==================================
 bool is_initialized = 0;
 void initialize_dynamic_allocator(uint32 daStart, uint32 daEnd)
@@ -55,36 +56,38 @@ void initialize_dynamic_allocator(uint32 daStart, uint32 daEnd)
 	//==================================================================================
 	//==================================================================================
 	//TODO: [PROJECT'25.GM#1] DYNAMIC ALLOCATOR - #1 initialize_dynamic_allocator
-	//Your code is here
+
+	// save the start and end addresses
+	dynAllocStart = daStart;
 	dynAllocEnd = daEnd;
 
-		// iterate over the entire pageblockinfo[] to init all pages
-		int total_pages = DYN_ALLOC_MAX_SIZE / PAGE_SIZE;
-		for (int i = 0; i < total_pages; i++)
-		{
-			struct PageInfoElement* pageInfo = &pageBlockInfoArr[i];
-			uint32 va = to_page_va(pageInfo);
-
-			// check if the page's VA is within the free range
-			if (va >= daStart && va < daEnd)
-			{
-				// this page is initially free
-				pageInfo->ref_count = 0;
-				pageInfo->num_pages = 0;
-			}
-			else
-			{
-				// this page is outside the free range
-				// marked as allocated
-				pageInfo->ref_count = 1;
-				pageInfo->num_pages = 0;
-			}
-		}
-
-		//Comment the following line
-		//panic("initialize_dynamic_allocator() Not implemented yet");
+	// initialize all the free block lists
+	int num_lists = LOG2_MAX_SIZE - LOG2_MIN_SIZE + 1;
+	for (int i = 0; i < num_lists; i++) {
+		LIST_INIT(&freeBlockLists[i]);
 	}
 
+	// initialize the list of free pages
+	LIST_INIT(&freePagesList);
+
+	// initialize all the page info elements
+	// when the block_size equals 0, it mens the page is not used
+	for (int i = 0; i < (DYN_ALLOC_MAX_SIZE / PAGE_SIZE); i++) {
+		pageBlockInfoArr[i].block_size = 0;
+		pageBlockInfoArr[i].num_of_free_blocks = 0;
+	}
+
+	for (uint32 va = daStart; va < daEnd; va += PAGE_SIZE)
+	{
+		struct PageInfoElement* page_info = to_page_info(va);
+		LIST_INSERT_TAIL(&freePagesList, page_info);
+	}
+}/*
+
+
+
+
+ */
 
 //===========================
 // [2] GET BLOCK SIZE:
@@ -92,31 +95,13 @@ void initialize_dynamic_allocator(uint32 daStart, uint32 daEnd)
 __inline__ uint32 get_block_size(void *va)
 {
 	//TODO: [PROJECT'25.GM#1] DYNAMIC ALLOCATOR - #2 get_block_size
-	//Your code is here
 
-	// get the pageinfo for the page containing the VA
-		struct PageInfoElement* pageInfo = to_page_info((uint32)va);
+	// get the page info for this address
+	struct PageInfoElement* page_info = to_page_info((uint32)va);
 
-		// if the page is free it is not part of any block
-		if (pageInfo->ref_count == 0)
-		{
-			return 0;
-		}
+	// return the block size stored in the page info
+	return page_info->block_size;
 
-		// the start page is the first allocated page that has num_pages > 0.
-		struct PageInfoElement* startPage = pageInfo;
-		while (startPage > pageBlockInfoArr && startPage->num_pages == 0)
-		{
-			startPage--;
-			// if we scan back and found a free page, the original VA was invalid
-			if (startPage->ref_count == 0)
-			{
-				return 0;
-			}
-		}
-
-		// Now startPage points to the first page of the block
-		return startPage->num_pages * PAGE_SIZE;
 	//Comment the following line
 	//panic("get_block_size() Not implemented yet");
 }
@@ -135,67 +120,112 @@ void *alloc_block(uint32 size)
 	//==================================================================================
 	//==================================================================================
 	//TODO: [PROJECT'25.GM#1] DYNAMIC ALLOCATOR - #3 alloc_block
-	//Your code is here
-	if (size == 0)
+
+	// find the smallest power of 2 block size that fits the request
+	uint32 actual_size = DYN_ALLOC_MIN_BLOCK_SIZE; // starts at 8
+	while (actual_size < size) {
+		actual_size *= 2;
+	}
+
+	// find the index for the free list
+	int list_index = 0;
+	uint32 temp_size = actual_size;
+	while (temp_size > DYN_ALLOC_MIN_BLOCK_SIZE) {
+		temp_size /= 2;
+		list_index++;
+	}
+
+	// check if there's a free block in the list
+	if (!LIST_EMPTY(&freeBlockLists[list_index])) {
+
+		struct BlockElement* free_block = LIST_FIRST(&freeBlockLists[list_index]);
+		// *** FIX 1 *** (I passed wrong No of params bec i didn't read the queue.h :( )
+		LIST_REMOVE(&freeBlockLists[list_index], free_block);
+
+		// update the page info
+		struct PageInfoElement* page_info = to_page_info((uint32)free_block);
+		page_info->num_of_free_blocks--;
+
+		return free_block;
+	}
+
+	// if no free block, we need a new page
+	struct PageInfoElement* new_page_info = NULL;
+	uint32 new_page_va = 0;
+
+	// check if we have an empty page ready to use
+	if (!LIST_EMPTY(&freePagesList)) {
+		new_page_info = LIST_FIRST(&freePagesList);
+		// *** FIX 2 *** (I passed wrong No of params in List_remove bec i didn't read the queue.h :( )
+		LIST_REMOVE(&freePagesList, new_page_info);
+		new_page_va = to_page_va(new_page_info);
+
+		if (new_page_info->block_size == 0)
 		{
-			return NULL;
+			if (get_page((void*)new_page_va) != 0) {
+				LIST_INSERT_HEAD(&freePagesList, new_page_info);
+				return NULL;
+			}
 		}
 
-		//the number of pages needed (ceiling)
-		uint32 num_pages_needed = (size + PAGE_SIZE - 1) / PAGE_SIZE;
+	} else {
+		// no empty pages so ask the kernel for new page
+		// find a va that is not used
 
-		//use first-fit to find a contiguous block of free pages
-		uint32 free_count = 0;
-		struct PageInfoElement* start_page_info = NULL;
-
-		//iterate by VA from the start to the end of the heap
-		uint32 va_iterator = dynAllocStart;
-		while (va_iterator < dynAllocEnd)
-		{
-			struct PageInfoElement* current_page_info = to_page_info(va_iterator);
-
-			if (current_page_info->ref_count == 0) // Page is free
-			{
-				if (free_count == 0) //start of a new potential block(maybe yes maybe no , who knows?)
-				{
-					start_page_info = current_page_info;
-				}
-				free_count++;
-
-				if (free_count == num_pages_needed) //a block is found
-				{
-					//the block is now allocated
-					start_page_info->ref_count = 1;
-					start_page_info->num_pages = num_pages_needed;
-
-					//mark all pages in this block
-					for (int i = 1; i < num_pages_needed; i++)
-					{
-						struct PageInfoElement* subsequent_page = start_page_info + i;
-						subsequent_page->ref_count = 1;
-						subsequent_page->num_pages = 0; // Mark as "not a start page"
-					}
-
-					return (void*)to_page_va(start_page_info);
+		for (uint32 va = dynAllocStart; va < dynAllocEnd; va += PAGE_SIZE) {
+			struct PageInfoElement* info = to_page_info(va);
+			// block size = 0 means this page is not used by the allocator
+			if (info->block_size == 0) {
+				// try to get this page from kernel
+				if (get_page((void*)va) == 0) {
+					new_page_va = va;
+					new_page_info = info;
+					break;
 				}
 			}
-			else // resetting the search as now the page is allocated
-			{
-				free_count = 0;
-				start_page_info = NULL;
-			}
-
-			va_iterator += PAGE_SIZE;
 		}
-
-		// no contiguous block of sufficient size was found so returning a null
 		return NULL;
+	}  /*
+
+
+
+	 */
+
+	// if we don't have a page this means that we ran out of memory :(
+	if (new_page_info == NULL) {
+		return NULL;
+	}
+
+	// setup the new page
+	new_page_info->block_size = actual_size;
+	int num_blocks = PAGE_SIZE / actual_size;
+	new_page_info->num_of_free_blocks = num_blocks;
+
+	// add all the new blocks from this page to the free list
+	for (int i = 0; i < num_blocks; i++) {
+		struct BlockElement* new_block = (struct BlockElement*)(new_page_va + i * actual_size);
+		LIST_INSERT_HEAD(&freeBlockLists[list_index], new_block);
+	}
+
+	// now we can allocate for sure
+	struct BlockElement* free_block = LIST_FIRST(&freeBlockLists[list_index]);
+	// *** FIX 3 *** (I passed wrong No of params bec i didn't read the queue.h :( )
+	LIST_REMOVE(&freeBlockLists[list_index], free_block);
+	new_page_info->num_of_free_blocks--; // update count
+
+	return free_block;
+
 	//Comment the following line
 	//panic("alloc_block() Not implemented yet");
 
-	//TODO: [PROJECT'25.BONUS#1] DYNAMIC ALLOCATOR - block if no free block
-}
 
+
+} /*
+
+
+
+
+ */
 //===========================
 // [4] FREE BLOCK:
 //===========================
@@ -211,47 +241,57 @@ void free_block(void *va)
 	//==================================================================================
 
 	//TODO: [PROJECT'25.GM#1] DYNAMIC ALLOCATOR - #4 free_block
-	//Your code is here
-	//making sure that the VA is page-aligned
-		if ((uint32)va % PAGE_SIZE != 0)
-		{
-			panic("free_block: Address is not page-aligned!");
+
+	// get page info and block size
+	struct PageInfoElement* page_info = to_page_info((uint32)va);
+	uint32 block_size = page_info->block_size;
+
+	if (block_size == 0) {
+		// trying to free a block on a page that is already free?
+		// this is bad
+		panic("free_block: trying to free invalid block");
+	}
+
+	// find the correct list index
+	int list_index = 0;
+	uint32 temp_size = block_size;
+	while (temp_size > DYN_ALLOC_MIN_BLOCK_SIZE) {
+		temp_size /= 2;
+		list_index++;
+	}
+
+	// add the block back to the list
+	struct BlockElement* block_to_free = (struct BlockElement*)va;
+	LIST_INSERT_HEAD(&freeBlockLists[list_index], block_to_free);
+
+	// increment the free count
+	page_info->num_of_free_blocks++;
+
+	// check if the page is now completely free
+	int total_blocks = PAGE_SIZE / block_size;
+	if (page_info->num_of_free_blocks == total_blocks) {
+		// page is all free!
+		// remove all blocks from this page from the free list
+		uint32 page_va = to_page_va(page_info);
+		for (int i = 0; i < total_blocks; i++) {
+			struct BlockElement* block = (struct BlockElement*)(page_va + i * block_size);
+			// *** FIX 4 *** (I passed wrong No of params bec i didn't read the queue.h :( )
+			LIST_REMOVE(&freeBlockLists[list_index], block);
 		}
 
-		struct PageInfoElement* start_page_info = to_page_info((uint32)va);
+		// add this page to the freePagesList soit can be reused
+		LIST_INSERT_HEAD(&freePagesList, page_info);
 
-		//check if it is free
-		if (start_page_info->ref_count == 0)
-		{
-			panic("free_block: Block is already free!");
-		}
+	}
 
-		//check if the VA is the start of a block.
-		// If num_pages is 0, it's a subsequent page which is an invalid VA to free
-		if (start_page_info->num_pages == 0)
-		{
-			panic("free_block: Address is not the start of an allocated block!");
-		}
-
-		uint32 num_pages_to_free = start_page_info->num_pages;
-
-		// Iterate and free all pages in this block
-		for (int i = 0; i < num_pages_to_free; i++)
-		{
-			struct PageInfoElement* current_page = start_page_info + i;
-
-			// Safety check for metadata corruption
-			if (current_page->ref_count == 0)
-			{
-				panic("free_block: Block metadata corruption detected!");
-			}
-
-			current_page->ref_count = 0;
-			current_page->num_pages = 0;
-		}
 	//Comment the following line
 	//panic("free_block() Not implemented yet");
-}
+}/*
+
+
+ */
+
+
 
 //==================================================================================//
 //============================== BONUS FUNCTIONS ===================================//
@@ -263,95 +303,51 @@ void free_block(void *va)
 void *realloc_block(void* va, uint32 new_size)
 {
 	//TODO: [PROJECT'25.BONUS#2] KERNEL REALLOC - realloc_block
-	//Your code is here
-	// --- exceptional cases ---
-		if (va == NULL)
-		{
-			// if va is nul, realloc() is equivalent to alloc_block()
+		// if the pointer is null, just make a new block
+		if (va == NULL) {
 			return alloc_block(new_size);
 		}
 
-		if (new_size == 0)
-		{
-			// If new_size is 0, realloc() is equivalent to free_block()
+		// if new size is 0, free the block and return null
+		if (new_size == 0) {
 			free_block(va);
 			return NULL;
 		}
 
-		// --- getting the block Info ---
-		struct PageInfoElement* start_page_info = to_page_info((uint32)va);
-		if (start_page_info->ref_count == 0 || start_page_info->num_pages == 0)
-		{
-			panic("realloc_block: Invalid va (not start of an allocated block)");
-		}
+		// how big the current block is ?
+		uint32 old_size = get_block_size(va);
 
-		uint32 old_num_pages = start_page_info->num_pages;
-		uint32 old_size = old_num_pages * PAGE_SIZE;
-		uint32 new_num_pages = (new_size + PAGE_SIZE - 1) / PAGE_SIZE;
-
-		// --- case 1 shrinking or same size ---
-		if (new_num_pages <= old_num_pages)
-		{
-			// Free the remaining pages that are no longer needed
-			for (int i = new_num_pages; i < old_num_pages; i++)
-			{
-				struct PageInfoElement* page_to_free = start_page_info + i;
-				page_to_free->ref_count = 0;
-				page_to_free->num_pages = 0;
-			}
-			// update the page count for the start page
-			start_page_info->num_pages = new_num_pages;
+		// if new size is same as old size, return the same pointer
+		if (new_size == old_size) {
 			return va;
 		}
 
-		// --- ase 2 growing ---
-		uint32 pages_to_add = new_num_pages - old_num_pages;
-
-		// check if we can extend the current block (if pages which are after the current are free)
-		bool can_extend = 1;
-		for (int i = 0; i < pages_to_add; i++)
-		{
-			struct PageInfoElement* next_page = start_page_info + old_num_pages + i;
-			//check if next page is outside the heap or if it is already allocated
-			if (to_page_va(next_page) >= dynAllocEnd || next_page->ref_count != 0)
-			{
-				can_extend = 0;
-				break;
-			}
-		}
-
-		// --- case 3  extending the block in place ---
-		if (can_extend)
-		{
-			// checkthe new pages as allocated
-			for (int i = 0; i < pages_to_add; i++)
-			{
-				struct PageInfoElement* new_page = start_page_info + old_num_pages + i;
-				new_page->ref_count = 1;
-				new_page->num_pages = 0; // Mark as subsequent page
-			}
-			// updating the total page count on the start page
-			start_page_info->num_pages = new_num_pages;
+		if (new_size < old_size) {
 			return va;
 		}
 
-		// --- case moving the block ---
-		// ALLOCATION OF a new block of the new size
-		void* new_va = alloc_block(new_size);
-		if (new_va == NULL)
-		{
-			// if the aLLOCATION IS FAILED
-			return NULL;
-		}
+		// if new size is bigger than old size, we need a bigger block
+		if (new_size > old_size) {
+			void *new_block = alloc_block(new_size);
 
-		// COPYING THE DATA FROM OLD BLOCK TO NEW BLOCK WIth copying the original size
-		memcpy(new_va, va, old_size);
+			if (new_block == NULL) {
+				return NULL;
+			}
 
-		// fre the old mem block
-		free_block(va);
+			// copy all the data from old block to new block, we copy only the amount that fits in old block
+			memcpy(new_block, va, old_size);
 
-		// return new VA
-		return new_va;
-	//Comment the following line
-	//panic("realloc_block() Not implemented yet");
+			// free the old block don't need it anymore
+			free_block(va);
+
+			// returnew block
+			return new_block;
+		} ///
+
+		// ISA we don't reach this case
+		return NULL;
+
+		//Comment the following line
+		//panic("realloc_block() Not implemented yet");
+
 }
