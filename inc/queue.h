@@ -1,52 +1,8 @@
-/*
- * Copyright (c) 1991, 1993
- *	The Regents of the University of California.  All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
- *
- *	@(#)queue.h	8.3 (Berkeley) 12/13/93
- *
- * For FOS, extra comments have been added to this file, and the original
- * TAILQ and CIRCLEQ definitions have been removed.   - August 9, 2005
- */
 
 #ifndef FOS_INC_QUEUE_H
 #define FOS_INC_QUEUE_H
 
-/*
- * A list is headed by a single forward pointer (or an array of forward
- * pointers for a hash table header). The elements are doubly linked
- * so that an arbitrary element can be removed without a need to
- * traverse the list. New elements can be added to the list before
- * or after an existing element or at the head of the list. A list
- * may only be traversed in the forward direction.
- */
 
-/*
- * An example using the below functions.
- */
 #if 0
 
 struct Frob
@@ -85,27 +41,7 @@ LIST_INSERT_HEAD(&flist, g, frob_link);	/* add g as first element in list */
 
 #endif
 
-/*
- * List declarations.
- */
 
-/*
- * A list is headed by a structure defined by the LIST_HEAD macro.  This structure contains
- * a single pointer to the first element on the list.  The elements are doubly
- * linked so that an arbitrary element can be removed without traversing the list.  New
- * elements can be added to the list after an existing element or at the head of the list.
- * A LIST_HEAD structure is declared as follows:
- *
- *       LIST_HEAD(HEADNAME, TYPE) head;
- *
- * where HEADNAME is the name of the structure to be defined, and TYPE is the type of the
- * elements to be linked into the list.  A pointer to the head of the list can later be
- * declared as:
- *
- *       struct HEADNAME *headp;
- *
- * (The names head and headp are user selectable.)
- */
 #define	LIST_HEAD(name, type)						\
 struct name {								\
 	struct type *lh_first;	/* first element */			\
@@ -240,7 +176,7 @@ struct {								\
 #define	LIST_INSERT_HEAD(list, elm) do {				\
 	if (elm == NULL) panic("LIST_INSERT_HEAD: element is NULL!");			\
 	if ((LIST_NEXT((elm)) = LIST_FIRST((list))) != NULL)	\
-		LIST_PREV(LIST_FIRST((list)))= ((elm));\
+		LIST_PREV(LIST_NEXT((elm))) = ((elm));\
 	else	\
 		LIST_LAST((list)) = (elm); \
 	LIST_FIRST((list)) = (elm);					\
@@ -296,4 +232,8 @@ struct {								\
 
 //#define	LIST_CLEAR(list)	(LIST_INIT(list))
 
+#define LIST_FOREACH_SAFE(var, head, field, tvar) \
+    for ((var) = LIST_FIRST((head)); \
+        (var) && ((tvar) = LIST_NEXT((var)), 1); \
+        (var) = (tvar))
 #endif	/* !_SYS_QUEUE_H_ */

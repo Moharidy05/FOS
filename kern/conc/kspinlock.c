@@ -14,6 +14,12 @@
 #include "../cpu/cpu.h"
 #include "../proc/user_environment.h"
 
+// Function declarations for functions defined in cpu.c
+void pushcli(void);
+void popcli(void);
+struct cpu* mycpu(void);
+struct Env* get_cpu_proc(void);
+
 void init_kspinlock(struct kspinlock *lk, char *name)
 {
 	strcpy(lk->name, name);
@@ -21,10 +27,6 @@ void init_kspinlock(struct kspinlock *lk, char *name)
 	lk->cpu = 0;
 }
 
-// Acquire the lock.
-// Loops (spins) until the lock is acquired.
-// Holding a lock for a long time may cause
-// other CPUs to waste time spinning to acquire it.
 void acquire_kspinlock(struct kspinlock *lk)
 {
 	if(holding_kspinlock(lk))
@@ -40,14 +42,9 @@ void acquire_kspinlock(struct kspinlock *lk)
 	if (e) envID = e->env_id;
 	//cprintf("[%d] try to acquire spinlock [%s]\n", envID, lk->name);
 
-	// The xchg is atomic.
 	while(xchg(&lk->locked, 1) != 0) ;
 
-	//cprintf("SPIN lock [%s] is ACQUIRED  by [%d]\n", lk->name, envID);
 
-	// Tell the C compiler and the processor to not move loads or stores
-	// past this point, to ensure that the critical section's memory
-	// references happen after the lock is acquired.
 	__sync_synchronize();
 
 	// Record info about lock acquisition for debugging.
@@ -67,16 +64,10 @@ void release_kspinlock(struct kspinlock *lk)
 	lk->pcs[0] = 0;
 	lk->cpu = 0;
 
-	// Tell the C compiler and the processor to not move loads or stores
-	// past this point, to ensure that all the stores in the critical
-	// section are visible to other cores before the lock is released.
-	// Both the C compiler and the hardware may re-order loads and
-	// stores; __sync_synchronize() tells them both not to.
+
 	__sync_synchronize();
 
-	// Release the lock, equivalent to lk->locked = 0.
-	// This code can't use a C assignment, since it might
-	// not be atomic. A real OS would use C atomics here.
+
 	asm volatile("movl $0, %0" : "+m" (lk->locked) : );
 
 	int envID = 0;
@@ -122,6 +113,7 @@ void printcallstack(struct kspinlock *lk)
 		cprintf("  PC[%d] = %x\n", i, lk->pcs[i]);
 	}
 }
+
 // Check whether this cpu is holding the lock.
 int holding_kspinlock(struct kspinlock *lock)
 {
@@ -131,4 +123,3 @@ int holding_kspinlock(struct kspinlock *lock)
 	popcli();
 	return r;
 }
-

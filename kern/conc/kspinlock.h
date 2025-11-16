@@ -9,6 +9,8 @@
 #include <inc/types.h>
 #include <inc/stdio.h>
 
+struct cpu; // Forward declaration
+
 struct kspinlock {
   uint32 locked;       	// Is the lock held?
 
@@ -18,10 +20,12 @@ struct kspinlock {
   uint32 pcs[10];      	// The call stack (an array of program counters)
                      	// that locked the lock.
 };
+
 void init_kspinlock(struct kspinlock *lk, char *name);
 void acquire_kspinlock(struct kspinlock *lk);
 void release_kspinlock(struct kspinlock *lk);
 int getcallerpcs(void *v, uint32 pcs[]) ;
 void printcallstack(struct kspinlock *lk);
 int holding_kspinlock(struct kspinlock *lock);
+
 #endif /*KERN_CONC_KSPINLOCK_H_*/
