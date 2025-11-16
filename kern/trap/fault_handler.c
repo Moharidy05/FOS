@@ -1,8 +1,8 @@
 /*
  * fault_handler.c
  *
- *  Created on: Oct 12, 2022
- *      Author: HP
+ * Created on: Oct 12, 2022
+ * Author: HP
  */
 
 #include "trap.h"
@@ -230,11 +230,11 @@ void table_fault_handler(struct Env * curenv, uint32 fault_va)
 //=========================
 /* Calculate the number of page faults according th the OPTIMAL replacement strategy
  * Given:
- * 	1. Initial Working Set List (that the process started with)
- * 	2. Max Working Set Size
- * 	3. Page References List (contains the stream of referenced VAs till the process finished)
+ * 1. Initial Working Set List (that the process started with)
+ * 2. Max Working Set Size
+ * 3. Page References List (contains the stream of referenced VAs till the process finished)
  *
- * 	IMPORTANT: This function SHOULD NOT change any of the given lists
+ * IMPORTANT: This function SHOULD NOT change any of the given lists
  */
 int get_optimal_num_faults(struct WS_List *initWorkingSet, int maxWSSize, struct PageRef_List *pageReferences)
 {
@@ -250,7 +250,7 @@ void page_fault_handler(struct Env * faulted_env, uint32 fault_va)
 	struct WorkingSetElement *victimWSElement = NULL;
 	uint32 wsSize = LIST_SIZE(&(faulted_env->page_WS_list));
 #else
-	int iWS =faulted_env->page_last_WS_index;
+	//int iWS =faulted_env->page_last_WS_index; // This field doesn't exist in the KHEAP (GM) version
 	uint32 wsSize = env_page_ws_get_size(faulted_env);
 #endif
 	if(wsSize < (faulted_env->page_WS_max_size))
@@ -269,7 +269,7 @@ void page_fault_handler(struct Env * faulted_env, uint32 fault_va)
 			//Comment the following line
 			panic("page_fault_handler().REPLACEMENT is not implemented yet...!!");
 		}
-		else if (isPageReplacmentAlgorithmOPTIMAL())
+		else if (isPageReplacmentAlgorithmCLOCK())
 		{
 			//TODO: [PROJECT'25.IM#1] FAULT HANDLER II - #3 Clock Replacement
 			//Your code is here
@@ -297,6 +297,3 @@ void __page_fault_handler_with_buffering(struct Env * curenv, uint32 fault_va)
 {
 	panic("this function is not required...!!");
 }
-
-
-

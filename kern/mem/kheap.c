@@ -7,18 +7,6 @@
 #include <kern/mem/memory_manager.h>
 #include "../conc/kspinlock.h"
 
-// Definitions for the global heap variables declared in kheap.h
-uint32 kheapPageAllocStart;
-uint32 kheapPageAllocBreak;
-uint32 kheapPlacementStrategy;
-int numOfKheapVACalls = 0;
-
-// Spinlock for protecting the kernel heap
-static struct kspinlock kheap_lock;
-
-
-
-
 //==================================================================================//
 //============================== GIVEN FUNCTIONS ===================================//
 //==================================================================================//
@@ -28,8 +16,6 @@ static struct kspinlock kheap_lock;
 //==============================================
 //TODO: [PROJECT'25.GM#2] KERNEL HEAP - #0 kheap_init [GIVEN]
 //Remember to initialize locks (if any)
-//spinlocks initialization
-
 void kheap_init()
 {
 	//==================================================================================
@@ -43,8 +29,6 @@ void kheap_init()
 	}
 	//==================================================================================
 	//==================================================================================
-	//kheap spinlock initialization
-	kspinlock_init(&kheap_lock, "kheap_lock");
 }
 
 //==============================================
@@ -76,65 +60,11 @@ void* kmalloc(unsigned int size)
 {
 	//TODO: [PROJECT'25.GM#2] KERNEL HEAP - #1 kmalloc
 	//Your code is here
-	//acquire the lock to ensure mutual exclusion
-		kspin_lock(&kheap_lock);
-
-		void* ret_va = NULL;
-
-		if (size == 0) {
-			kspin_unlock(&kheap_lock);
-			return NULL;
-		}
 	//Comment the following line
-	//kpanic_into_prompt("kmalloc() is not implemented yet...!!");
+	kpanic_into_prompt("kmalloc() is not implemented yet...!!");
 
 	//TODO: [PROJECT'25.BONUS#3] FAST PAGE ALLOCATOR
-		if (size >= PAGE_SIZE)
-			{
-				uint32 rounded_size = ROUNDUP(size, PAGE_SIZE);
-				uint32 num_pages = rounded_size / PAGE_SIZE;
-
-				//check if there is enough space in the page-allocator
-				if (kheapPageAllocBreak + rounded_size > KERNEL_HEAP_MAX) {
-					kspin_unlock(&kheap_lock);
-					return NULL;
-				}
-
-				//VA we will return (start of the allocated block)
-				ret_va = (void*)kheapPageAllocBreak;
-				page_info* first_pi = NULL;
-
-				//allocation and mapping of all required pages
-				for (int i = 0; i < num_pages; i++)
-				{
-					void* va_current = (void*)(kheapPageAllocBreak + (i * PAGE_SIZE));
-
-					//get_page() allocates a physical frame and maps it at va_current
-					get_page(va_current); //panics on failure
-
-					if (i == 0) {
-						unsigned int page_pa = kheap_physical_address_unlocked((uint32)va_current);
-						first_pi = pa2page(page_pa);
-					}
-				}
-
-				// Store the number of allocated pages
-				if (first_pi != NULL) {
-					first_pi->prev_next_info.num_of_pages = num_pages;
-				}
-				kheapPageAllocBreak += rounded_size;
-			}
-			else
-			{
-				//if size < pagezize use the dynamic allocator
-				ret_va = alloc_block(size, kheap_strategy);
-			}
-
-			//release the lock
-			kspin_unlock(&kheap_lock);
-			return ret_va;
-		}
-
+}
 
 //=================================
 // [2] FREE SPACE FROM KERNEL HEAP:
@@ -143,45 +73,6 @@ void kfree(void* virtual_address)
 {
 	//TODO: [PROJECT'25.GM#2] KERNEL HEAP - #2 kfree
 	//Your code is here
-	kspin_lock(&kheap_lock);
-		if (virtual_address == NULL) {
-			kspin_unlock(&kheap_lock);
-			return;
-		}
-
-		//checking if the VA is in the dynamic allocator
-		if (virtual_address >= (void*)KERNEL_HEAP_START && virtual_address < (void*)dynAllocEnd)
-		{
-			free_block(virtual_address);
-		}
-		//checking if the VA is in the fast page allocator
-		else if (virtual_address >= (void*)kheapPageAllocStart && virtual_address < (void*)kheapPageAllocBreak)
-		{
-			//VA must be page-aligned
-			if (ROUNDDOWN((uint32)virtual_address, PAGE_SIZE) != (uint32)virtual_address) {
-				panic("kfree: fast page allocator address not page-aligned!");
-			}
-
-			//using the unlcoked version as the lock is already held ( spinlocked haha# :) )
-			unsigned int page_pa = kheap_physical_address_unlocked((uint32)virtual_address);
-			page_info* first_pi = pa2page(page_pa);
-
-			if (first_pi == NULL) {
-				panic("kfree: no page_info for fast allocated block!");
-			}
-
-			uint32 num_pages = first_pi->prev_next_info.num_of_pages;
-
-			// Unmap and free all pages in this block
-			for (int i = 0; i < num_pages; i++)
-			{
-				void* va_current = (void*)((uint32)virtual_address + (i * PAGE_SIZE));
-				return_page(va_current); // unmaps and frees the frame
-			}
-		}
-
-		// Release the lock
-		kspin_unlock(&kheap_lock);
 	//Comment the following line
 	panic("kfree() is not implemented yet...!!");
 }
@@ -189,74 +80,28 @@ void kfree(void* virtual_address)
 //=================================
 // [3] FIND VA OF GIVEN PA:
 //=================================
-
-	//TODO: [PROJECT'25.GM#2] KERNEL HEAP - #3 kheap_virtual_address_unlocked
-	//-... .- -.. .-. / --.. --- -... .-. -.--
+unsigned int kheap_virtual_address(unsigned int physical_address)
+{
+	//TODO: [PROJECT'25.GM#2] KERNEL HEAP - #3 kheap_virtual_address
 	//Your code is here
-	unsigned int kheap_virtual_address_unlocked(unsigned int physical_address)
-	{
-		page_info *pi = pa2page(physical_address);
-
-		if (pi == NULL || pi->virtual_address == 0) {
-			return 0;
-		}
-
-		uint32 page_va = pi->virtual_address;
-
-		if (page_va < KERNEL_HEAP_START || page_va >= KERNEL_HEAP_MAX) {
-			return 0;
-		}
-
-		uint32 page_offset = physical_address & (PAGE_SIZE - 1);
-		return page_va + page_offset;
-	}
-
-	unsigned int kheap_virtual_address(unsigned int physical_address)
-	{
-		//TODO: [PROJECT'25.GM#2] KERNEL HEAP - #3 kheap_virtual_address
-
-		kspin_lock(&kheap_lock);
-		unsigned int va = kheap_virtual_address_unlocked(physical_address);
-		kspin_unlock(&kheap_lock);
-		return va;
-
-		/*EFFICIENT IMPLEMENTATION ~O(1) IS REQUIRED */
-	}
 	//Comment the following line
-	//panic("kheap_virtual_address() is not implemented yet...!!");
+	panic("kheap_virtual_address() is not implemented yet...!!");
 
 	/*EFFICIENT IMPLEMENTATION ~O(1) IS REQUIRED */
-
+}
 
 //=================================
 // [4] FIND PA OF GIVEN VA:
 //=================================
-	unsigned int kheap_physical_address_unlocked(unsigned int virtual_address)
-	{
-		uint32* pte_ptr = NULL;
-		get_page_table(ptr_page_directory, (void*)virtual_address, &pte_ptr);
+unsigned int kheap_physical_address(unsigned int virtual_address)
+{
+	//TODO: [PROJECT'25.GM#2] KERNEL HEAP - #4 kheap_physical_address
+	//Your code is here
+	//Comment the following line
+	panic("kheap_physical_address() is not implemented yet...!!");
 
-		if (pte_ptr == NULL || (*pte_ptr & PERM_PRESENT) == 0) {
-			return 0;
-		}
-
-		uint32 page_pa = PTE_ADDR(*pte_ptr);
-		uint32 page_offset = virtual_address & (PAGE_SIZE - 1);
-		return page_pa + page_offset;
-	}
-
-
-	unsigned int kheap_physical_address(unsigned int virtual_address)
-	{
-		//TODO: [PROJECT'25.GM#2] KERNEL HEAP - #4 kheap_physical_address
-
-		kspin_lock(&kheap_lock);
-		unsigned int pa = kheap_physical_address_unlocked(virtual_address);
-		kspin_unlock(&kheap_lock);
-		return pa;
-
-		/*EFFICIENT IMPLEMENTATION ~O(1) IS REQUIRED */
-	}
+	/*EFFICIENT IMPLEMENTATION ~O(1) IS REQUIRED */
+}
 
 //=================================================================================//
 //============================== BONUS FUNCTION ===================================//
@@ -271,99 +116,12 @@ void kfree(void* virtual_address)
 //	A call with virtual_address = null is equivalent to kmalloc().
 //	A call with new_size = zero is equivalent to kfree().
 
-	extern __inline__ uint32 get_block_size(void *va);
+extern __inline__ uint32 get_block_size(void *va);
 
-	void *krealloc(void *virtual_address, uint32 new_size)
-	{
-		//TODO: [PROJECT'25.BONUS#2] KERNEL REALLOC - krealloc
-
-
-		kspin_lock(&kheap_lock);
-
-		void* new_ptr = NULL;
-
-		// case 1 VA = null equivalent to kmalloc()
-		//call the locked kmalloc adn unlocking it
-		if (virtual_address == NULL) {
-			kspin_unlock(&kheap_lock);
-			return kmalloc(new_size);
-		}
-
-		//case 2 new_size = zero is equivalent to kfree()
-		//call the locked kfree() adn unlocking it
-		if (new_size == 0) {
-			kspin_unlock(&kheap_lock); // Release lock before calling kfree
-			kfree(virtual_address);    // kfree handles its own locking
-			return NULL;
-		}
-
-		//get the size of the old block(must be locked)
-		uint32 old_size = get_block_size(virtual_address);
-
-		//case 3 Shrinking or same size
-		if (new_size <= old_size) {
-			kspin_unlock(&kheap_lock);
-			return virtual_address;
-		}
-
-		//cse 4 Growing
-
-		//dynamic allocator
-		if (virtual_address >= (void*)KERNEL_HEAP_START && virtual_address < (void*)dynAllocEnd)
-		{
-			new_ptr = realloc_block(virtual_address, new_size, kheap_strategy);
-		}
-		//fast page allocator
-		else if (virtual_address >= (void*)kheapPageAllocStart && virtual_address < (void*)kheapPageAllocBreak)
-		{
-			//use unlocked version since we are holding the lock
-			unsigned int page_pa = kheap_physical_address_unlocked((uint32)virtual_address);
-			page_info* pi = pa2page(page_pa);
-			uint32 old_num_pages = pi->prev_next_info.num_of_pages;
-			uint32 old_alloc_size = old_num_pages * PAGE_SIZE;
-
-			uint32 new_rounded_size = ROUNDUP(new_size, PAGE_SIZE);
-			uint32 new_num_pages = new_rounded_size / PAGE_SIZE;
-
-			//checkingif we can extend in-place
-			void* end_of_old_block = (void*)((uint32)virtual_address + old_alloc_size);
-
-			if (end_of_old_block == (void*)kheapPageAllocBreak)
-			{
-				uint32 diff_size = new_rounded_size - old_alloc_size;
-
-				if (kheapPageAllocBreak + diff_size <= KERNEL_HEAP_MAX)
-				{
-					for (uint32 va = kheapPageAllocBreak; va < kheapPageAllocBreak + diff_size; va += PAGE_SIZE) {
-						get_page((void*)va);
-					}
-					kheapPageAllocBreak += diff_size;
-					pi->prev_next_info.num_of_pages = new_num_pages;
-					new_ptr = virtual_address; // Success!
-				}
-			}
-
-			//couldn't grow in-place.
-			// We must release the lock to call kmalloc/kfree
-			if (new_ptr == NULL)
-			{
-				kspin_unlock(&kheap_lock); //release the lock
-
-				new_ptr = kmalloc(new_size); //call thelocked version
-				if (new_ptr == NULL) {
-					return NULL; //failed allocating
-				}
-
-				memcpy(new_ptr, virtual_address, old_size);
-				kfree(virtual_address); //call the locked version
-
-				return new_ptr; //return without unlocking
-			}
-		}
-		else {
-			panic("krealloc: address not in kernel heap range!");
-		}
-
-		kspin_unlock(&kheap_lock);
-		return new_ptr;
-	}
+void *krealloc(void *virtual_address, uint32 new_size)
+{
+	//TODO: [PROJECT'25.BONUS#2] KERNEL REALLOC - krealloc
+	//Your code is here
+	//Comment the following line
+	panic("krealloc() is not implemented yet...!!");
+}
