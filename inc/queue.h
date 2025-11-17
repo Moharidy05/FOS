@@ -115,7 +115,7 @@ struct {								\
 	(var) = LIST_NEXT((var)))
 */
 
-//TODO: Warning CANNOT BE USED AS NESTED LOOP because of the temp ___ptr_next, NEEDS MODIFICATION
+
 #define LIST_FOREACH(var, head)					\
 	for ((var) = LIST_FIRST((head));				\
 	( (head)->___ptr_next = LOOP_LIST_NEXT((var))) || (var);							\
