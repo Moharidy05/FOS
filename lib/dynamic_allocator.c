@@ -314,41 +314,41 @@ void free_block(void *virtualAddress)
 //===========================
 void *realloc_block(void* virtualAddress, uint32 newSize)
 {
-		// null pointer case ( allocate new block )
-		if (virtualAddress == NULL) {
-			return alloc_block(newSize);
-		}
+	// Case 1: virtualAddress = null is equivalent to alloc_block()
+	if (virtualAddress == NULL) {
+		return alloc_block(newSize);
+	}
 
-		// zero size case ( free existing block )
-		if (newSize == 0) {
-			free_block(virtualAddress);
-			return NULL;
-		}
+	// Case 2: new_size = zero is equivalent to free_block()
+	if (newSize == 0) {
+		free_block(virtualAddress);
+		return NULL;
+	}
 
-		// determine current block dimensions
-		uint32 currentBlockSize = get_block_size(virtualAddress);
+	// Get the size of the old block
+	uint32 currentBlockSize = get_block_size(virtualAddress);
 
-		// same size or smaller  ( return original pointer )
-		if (newSize <= currentBlockSize) {
-			return virtualAddress;
-		}
+	// Case 3: New size is the same as the old size. Do nothing.
+	if (newSize == currentBlockSize) {
+		return virtualAddress;
+	}
 
-		// larger size required  ( allocate new block )
-		if (newSize > currentBlockSize) {
-			void *newBlockPointer = alloc_block(newSize);
+	// Case 4: Shrinking or Growing.
 
-			if (newBlockPointer == NULL) {
-				return NULL;
-			}
-
-			// transfer data from old to new block
-			memcpy(newBlockPointer, virtualAddress, currentBlockSize);
-
-			// release old block
-			free_block(virtualAddress);
-
-			return newBlockPointer;
-		}
+	void *newBlockPointer = alloc_block(newSize);
+	if (newBlockPointer == NULL) {
 
 		return NULL;
-}//end of this function (DO NOT EDIT IT AT ALL!!!!!, by M)
+	}
+
+	uint32 copySize = (newSize < currentBlockSize) ? newSize : currentBlockSize;
+
+	// Transfer data from old to new block
+	memcpy(newBlockPointer, virtualAddress, copySize);
+
+	// Release old block
+	free_block(virtualAddress);
+
+	// Return the new block
+	return newBlockPointer;
+}
