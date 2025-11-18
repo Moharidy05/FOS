@@ -77,6 +77,11 @@ int get_page(void* va)
 		free_frame(ptr_frame_info); // cleans up if map_frame fails
 		panic("get_page: map_frame failed");
 	}
+
+	// allows kheap_virtual_address to find it later in O(1).
+	//in (tst kheap cf kvirtaddr to check le elly ha ytest ba3dy) dont change it!!!!!
+	ptr_frame_info->proc = (struct Env*)ROUNDDOWN((uint32)va, PAGE_SIZE);
+
 	return 0;
 }
 
@@ -147,7 +152,7 @@ static void insert_and_merge_free_page(struct FreePageBlock* new_block)
 	{
 		new_block->size += entry->size;
 		LIST_REMOVE(&free_page_list, entry);
-		free_block(entry); // Free the metadata block
+		free_block(entry);
 		merged_with_next = 1;
 	}
 
@@ -223,13 +228,13 @@ void* kmalloc(unsigned int size)
 			remainder_block->start_va = best_fit_block->start_va + aligned_size;
 			remainder_block->size = best_fit_block->size - aligned_size;
 
-			// Re-insert the remained block
+			// insert the remained block bak again
 			insert_and_merge_free_page(remainder_block);
 		}
 
 		free_block(best_fit_block);
 	}
-	// if no suitable block found allocate from the break
+	// if no block found allocate from the break
 	else
 	{
 		alloc_start_va = kheapPageAllocBreak;
@@ -239,7 +244,7 @@ void* kmalloc(unsigned int size)
 			return NULL;
 		}
 
-		// increase the break boundaries (hanerfa3ha 4waya)
+		// increase the break boundaries (hanerfa3ha 4waya 3shan na5od mesa7a extra)
 		kheapPageAllocBreak += aligned_size;
 	}
 
@@ -328,45 +333,39 @@ unsigned int kheap_virtual_address(unsigned int physical_address)
 {
 	//TODO: [PROJECT'25.GM#2] KERNEL HEAP - #3 kheap_virtual_address
 
-	uint32 pa_page = physical_address & 0xFFFFF000;
-	uint32 pa_offset = physical_address & 0x00000FFF;
+	// convert physical address to pointer [O(1)]
+	struct FrameInfo *ptr_frame_info = to_frame_info(physical_address);
 
-	uint32 va;
-	for (va = KERNEL_HEAP_START; va < KERNEL_HEAP_MAX; va += PAGE_SIZE)
+	// Check if the frame is valid and currently allocated
+	// (if references == 0 then it's a free frame so it has no valid VA)
+	if (ptr_frame_info->references == 0)
 	{
-		uint32 *pte_ptr = NULL;
-		get_page_table(ptr_page_directory, va, &pte_ptr);
-
-		if (pte_ptr != NULL)
-		{
-			uint32 pte = pte_ptr[PTX(va)];
-			if ((pte & PERM_PRESENT) && ((pte & 0xFFFFF000) == pa_page))
-			{
-				return va + pa_offset;
-			}
-		}
-
-        // stop scanning if we pass the break and are in the page allocato
-        if (va >= kheapPageAllocBreak)
-        {
-
-        }
+		return 0;
 	}
 
-	// Not found in kernel heap
-	return 0;
+	// retrieval of the Virtual Address
 
-	//EFFICIENT IMPLEMENTATION ~O(1) IS REQUIRED and not implemented yet
-	//--O(N) (sort of actually it took much time to find the address when testing but the kheap physical address test took no time)
+	uint32 va_page = (uint32)ptr_frame_info->proc;
+
+	// if va_page is 0, the mapping wasn't recorded
+	if (va_page == 0)
+	{
+		return 0;
+	}
+
+	// calculate the offset within the page (lower 12 bits of PA)
+	uint32 offset = physical_address & 0xFFF;
+
+	// page start VA + offset
+	return va_page + offset;
 }
-
 //=================================
 // [4] FIND PA OF GIVEN VA:
 //=================================
 unsigned int kheap_physical_address(unsigned int virtual_address)
 {
 	//TODO: [PROJECT'25.GM#2] KERNEL HEAP - #4 kheap_physical_address
-
+	// implementation [O(1)]
 	uint32 *pte_ptr = NULL;
 	get_page_table(ptr_page_directory, virtual_address, &pte_ptr);
 
@@ -387,7 +386,6 @@ unsigned int kheap_physical_address(unsigned int virtual_address)
 
 	return pa_page + pa_offset;
 
-	/*EFFICIENT IMPLEMENTATION ~O(1) IS REQUIRED */
 }
 
 //=================================================================================//
@@ -400,13 +398,14 @@ void *krealloc(void *virtual_address, uint32 new_size)
 {
 	//TODO: [PROJECT'25.BONUS#2] KERNEL REALLOC - krealloc
 
-	// call with (virtual_address = null) = kmalloc() (sort of it does the same job)
+	// call with (virtual_address = null) = kmalloc()
+	//(sort of it does the same job 34an tefham mnen ywady 3la feen :) )
 	if (virtual_address == NULL)
 	{
 		return kmalloc(new_size);
 	}
 
-	// A call with (new_size = zero) =  kfree() (sort of it does the same job)
+	// A call with (new_size = zero) = kfree() (sort of it does the same job)
 	if (new_size == 0)
 	{
 		kfree(virtual_address);
@@ -456,7 +455,7 @@ void *krealloc(void *virtual_address, uint32 new_size)
 		return realloc_block(virtual_address, new_size);
 	}
 
-	// in page allocations we must do a new alloc, copy and free
+	// in page allocations we must do a new alloc then copy and free
 
 	void* new_va = kmalloc(new_size);
 	if (new_va == NULL)
