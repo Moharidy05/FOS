@@ -1,8 +1,8 @@
 /*
  * paging_helpers.c
  *
- *  Created on: Sep 30, 2022
- *      Author: HP
+ * Created on: Sep 30, 2022
+ * Author: HP
  */
 #include "memory_manager.h"
 #include "kheap.h"
@@ -52,8 +52,14 @@ inline void pt_set_page_permissions(uint32* directory, uint32 virtual_address, u
 inline int pt_get_page_permissions(uint32* directory, uint32 virtual_address )
 {
 	//TODO: PRACTICE: fill this function.
-	//Comment the following line
-	panic("pt_get_page_permissions() is not implemented yet!");
+	uint32* ptr_page_table = NULL;
+	int ret = get_page_table(directory, virtual_address, &ptr_page_table);
+
+	if (ptr_page_table != NULL)
+	{
+		return ptr_page_table[PTX(virtual_address)] & 0xFFF;
+	}
+	return -1;
 }
 
 //===============================
@@ -66,8 +72,18 @@ inline int pt_get_page_permissions(uint32* directory, uint32 virtual_address )
 inline void pt_clear_page_table_entry(uint32* directory, uint32 virtual_address)
 {
 	//TODO: PRACTICE: fill this function.
-	//Comment the following line
-	panic("pt_clear_page_table_entry() is not implemented yet!");
+	uint32* ptr_page_table = NULL;
+	int ret = get_page_table(directory, virtual_address, &ptr_page_table);
+
+	if (ptr_page_table != NULL)
+	{
+		ptr_page_table[PTX(virtual_address)] = 0;
+		tlb_invalidate(directory, (void*)virtual_address);
+	}
+	else
+	{
+		panic("pt_clear_page_table_entry() called but page table does not exist!");
+	}
 }
 
 /***********************************************************************************************/
@@ -84,8 +100,18 @@ inline void pt_clear_page_table_entry(uint32* directory, uint32 virtual_address)
 inline uint32 virtual_to_physical(uint32* directory, uint32 virtual_address)
 {
 	//TODO: PRACTICE: fill this function.
-	//Comment the following line
-	panic("Function is not implemented yet!");
+	uint32* ptr_page_table = NULL;
+	get_page_table(directory, virtual_address, &ptr_page_table);
+
+	if (ptr_page_table != NULL)
+	{
+		uint32 entry = ptr_page_table[PTX(virtual_address)];
+		if (entry & PERM_PRESENT)
+		{
+			return (entry & 0xFFFFF000) | (virtual_address & 0x00000FFF);
+		}
+	}
+	return -1;
 }
 
 //===============================
@@ -97,8 +123,30 @@ inline uint32 virtual_to_physical(uint32* directory, uint32 virtual_address)
 inline uint32 physical_to_virtual(uint32* directory, uint32 physical_address)
 {
 	//TODO: PRACTICE: fill this function.
-	//Comment the following line
-	panic("Function is not implemented yet!");
+	// Iterate over all possible page tables
+	for (uint32 i = 0; i < 1024; i++)
+	{
+		if (directory[i] & PERM_PRESENT)
+		{
+			uint32* ptr_page_table = NULL;
+			// Get the virtual address of the page table corresponding to the i-th directory entry
+			// We simulate looking up the VA that would map to this table
+			get_page_table(directory, i << 22, &ptr_page_table);
+
+			if (ptr_page_table != NULL)
+			{
+				for (uint32 j = 0; j < 1024; j++)
+				{
+					if ((ptr_page_table[j] & PERM_PRESENT) &&
+						(ptr_page_table[j] & 0xFFFFF000) == (physical_address & 0xFFFFF000))
+					{
+						return (i << 22) | (j << 12) | (physical_address & 0xFFF);
+					}
+				}
+			}
+		}
+	}
+	return 0xFFFFFFFF;
 }
 
 //===============================
@@ -108,8 +156,6 @@ inline uint32 physical_to_virtual(uint32* directory, uint32 physical_address)
 inline uint32 num_of_references(uint32 physical_address)
 {
 	//TODO: LAB4 Example#1: fill this function.
-	//Comment the following line
-//	panic("Function is not implemented yet!");
 	struct FrameInfo* ptr_fi = to_frame_info(physical_address);
 	return ptr_fi->references;
 }
@@ -129,8 +175,6 @@ inline uint32 num_of_references(uint32 physical_address)
 inline int alloc_page(uint32* directory, uint32 va, uint32 perms, bool set_to_zero)
 {
 	//TODO: LAB4 Example#2: fill this function.
-	//Comment the following line
-	//panic("Function is not implemented yet!");
 	uint32* ptr_table ;
 	struct FrameInfo* ptr_fi = get_frame_info(directory, va, &ptr_table);
 	if (ptr_fi != NULL) {
@@ -165,8 +209,32 @@ inline int alloc_page(uint32* directory, uint32 va, uint32 perms, bool set_to_ze
 inline int alloc_shared_page(uint32* page_dir1, uint32 va1,uint32* page_dir2, uint32 va2, uint32 perms)
 {
 	//TODO: PRACTICE: fill this function.
-	//Comment the following line
-	panic("Function is not implemented yet!");
+	struct FrameInfo *p_frame_info;
+	int ret;
+
+	// 1. Allocate a new frame
+	ret = allocate_frame(&p_frame_info);
+	if (ret == E_NO_MEM) return E_NO_MEM;
+
+	// 2. Map it to the first virtual address
+	ret = map_frame(page_dir1, p_frame_info, va1, perms);
+	if (ret == E_NO_MEM)
+	{
+		free_frame(p_frame_info);
+		return E_NO_MEM;
+	}
+
+	// 3. Map it to the second virtual address
+	ret = map_frame(page_dir2, p_frame_info, va2, perms);
+	if (ret == E_NO_MEM)
+	{
+		// If mapping fails, unmap the first one (which decrements ref count)
+		// and return error.
+		unmap_frame(page_dir1, va1);
+		return E_NO_MEM;
+	}
+
+	return 0;
 }
 
 //===============================
@@ -180,8 +248,6 @@ inline int alloc_shared_page(uint32* page_dir1, uint32 va1,uint32* page_dir2, ui
 inline void del_page_table(uint32* page_dir, uint32 va)
 {
 	//TODO: LAB6 Example: fill this function.
-	//Comment the following line
-	//panic("Function is not implemented yet!");
 
 	// get the page table of the given virtual address
 	uint32 * ptr_page_table ;

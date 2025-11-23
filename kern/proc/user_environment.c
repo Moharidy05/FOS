@@ -912,8 +912,29 @@ void* create_user_kern_stack(uint32* ptr_user_page_directory)
 {
 	//TODO: [PROJECT'25.GM#3] FAULT HANDLER I - #1 create_user_kern_stack
 	//Your code is here
+	void* ptr_stack = kmalloc(KERNEL_STACK_SIZE);
+
+		if (ptr_stack == NULL)
+		{
+			panic("create_user_kern_stack: failed to allocate kernel stack for environment!");
+		}
+
 	//Comment the following line
-	panic("create_user_kern_stack() is not implemented yet...!!");
+	//panic("create_user_kern_stack() is not implemented yet...!!");
+		uint32 *ptr_page_table = NULL;
+			get_page_table(ptr_user_page_directory, (uint32)ptr_stack, &ptr_page_table);
+
+			if (ptr_page_table != NULL)
+			{
+				// clear PERM_PRESENT (bit 0)
+				// ptx(ptr_stack) gives the index in the page table
+				ptr_page_table[PTX((uint32)ptr_stack)] &= (~PERM_PRESENT);
+
+				// invalidate TLB to ensure the change takes effect immediately
+				tlb_invalidate(ptr_user_page_directory, (void*)ptr_stack);
+			}
+
+			return ptr_stack;
 
 	//allocate space for the user kernel stack.
 	//remember to leave its bottom page as a GUARD PAGE (i.e. not mapped)

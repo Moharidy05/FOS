@@ -12,6 +12,7 @@
 #include <kern/disk/pagefile_manager.h>
 #include <kern/mem/memory_manager.h>
 #include <kern/mem/kheap.h>
+#include <inc/memlayout.h>
 
 //2014 Test Free(): Set it to bypass the PAGE FAULT on an instruction with this length and continue executing the next one
 // 0 means don't bypass the PAGE FAULT
@@ -87,32 +88,31 @@ struct Env* last_faulted_env = NULL;
 void fault_handler(struct Trapframe *tf)
 {
 	/******************************************************/
-	// Read processor's CR2 register to find the faulting address
 	uint32 fault_va = rcr2();
-	//cprintf("************Faulted VA = %x************\n", fault_va);
-	//	print_trapframe(tf);
-	/******************************************************/
-
-	//If same fault va for 3 times, then panic
-	//UPDATE: 3 FAULTS MUST come from the same environment (or the kernel)
 	struct Env* cur_env = get_cpu_proc();
-	if (last_fault_va == fault_va && last_faulted_env == cur_env)
+
+
+	uint32 current_eip = (uint32)tf->tf_eip;
+
+	if (last_fault_va == fault_va && last_faulted_env == cur_env && last_faulted_env != NULL)
 	{
-		num_repeated_fault++ ;
-		if (num_repeated_fault == 3)
-		{
-			print_trapframe(tf);
-			panic("Failed to handle fault! fault @ at va = %x from eip = %x causes va (%x) to be faulted for 3 successive times\n", before_last_fault_va, before_last_eip, fault_va);
-		}
+	    num_repeated_fault++;
+	    if (num_repeated_fault == 3)
+	    {
+	        print_trapframe(tf);
+	        panic("Failed to handle fault! fault @ at va = %x from eip = %x causes va (%x) to be faulted for 3 successive times\n",
+	              before_last_fault_va, before_last_eip, fault_va);
+	    }
 	}
 	else
 	{
-		before_last_fault_va = last_fault_va;
-		before_last_eip = last_eip;
-		num_repeated_fault = 0;
+	    before_last_fault_va = last_fault_va;
+	    before_last_eip = last_eip;
+	    num_repeated_fault = 1;
 	}
-	last_eip = (uint32)tf->tf_eip;
-	last_fault_va = fault_va ;
+
+	last_eip = current_eip;
+	last_fault_va = fault_va;
 	last_faulted_env = cur_env;
 	/******************************************************/
 	//2017: Check stack overflow for Kernel
@@ -165,6 +165,35 @@ void fault_handler(struct Trapframe *tf)
 			//TODO: [PROJECT'25.GM#3] FAULT HANDLER I - #2 Check for invalid pointers
 			//(e.g. pointing to unmarked user heap page, kernel or wrong access rights),
 			//your code is here
+
+			// [1] Check for Kernel Access in User Mode (Slave 1)
+			if (fault_va >= USER_TOP)
+			{
+				env_exit();
+			}
+
+			// [2] Check for Write to Read-Only Access Rights (Slave 2)
+			int perms = pt_get_page_permissions(faulted_env->env_page_directory, fault_va);
+			if ((perms & PERM_PRESENT))
+			{
+				// Check if it's a WRITE fault (bit 1 of tf_err) and page is NOT writable
+				if ((tf->tf_err & 0x02) && !(perms & PERM_WRITEABLE))
+				{
+					env_exit();
+				}
+			}
+
+			// [3] Check for Unmarked User Heap Access (Slave 3)
+			// If it's in the User Heap range, it MUST be marked as available (UHPAGE)
+			if (fault_va >= USER_HEAP_START && fault_va < USER_HEAP_MAX)
+			{
+				// If perms is -1 (table not present) OR PERM_AVAILABLE bit is not set
+				// PERM_AVAILABLE corresponds to PERM_UHPAGE in this context
+				if (perms == -1 || !(perms & PERM_AVAILABLE))
+				{
+					env_exit();
+				}
+			}
 
 			/*============================================================================================*/
 		}
@@ -257,8 +286,48 @@ void page_fault_handler(struct Env * faulted_env, uint32 fault_va)
 	{
 		//TODO: [PROJECT'25.GM#3] FAULT HANDLER I - #3 placement
 		//Your code is here
+
+		// [Fix]: Always use the Page Aligned Address for placement logic
+		uint32 page_va = ROUNDDOWN(fault_va, PAGE_SIZE);
+
+		// 1. Read the page from the Page File
+		int ret = pf_read_env_page(faulted_env, (void*)page_va);
+
+		// 2. Check for Lazy Allocation (if not in Page File)
+		if (ret == E_PAGE_NOT_EXIST_IN_PF)
+		{
+			// Check if it's a Stack Page OR a Heap Page
+			if ((page_va >= USTACKBOTTOM && page_va < USTACKTOP) ||
+			    (page_va >= USER_HEAP_START && page_va < USER_HEAP_MAX))
+			{
+				ret = pf_add_empty_env_page(faulted_env, page_va, 1);
+			}
+		}
+
+		// 3. Check for Placement Failures (Invalid Access, No Memory, or Not Stack/Heap)
+		// This covers Slave 4 (Invalid Random Address not in PF)
+		if (ret != 0)
+		{
+			env_exit();
+			return;
+		}
+
+		// 4. Create and Add Working Set Element
+		struct WorkingSetElement *new_ws = env_page_ws_list_create_element(faulted_env, page_va);
+		LIST_INSERT_TAIL(&(faulted_env->page_WS_list), new_ws);
+
+		// 5. Update Clock Hand (page_last_WS_element) if it's the first element or NULL
+		if (faulted_env->page_last_WS_element == NULL)
+		{
+			faulted_env->page_last_WS_element = new_ws;
+		}
+		else if (LIST_SIZE(&(faulted_env->page_WS_list)) == 1)
+		{
+			faulted_env->page_last_WS_element = new_ws;
+		}
+
 		//Comment the following line
-		panic("page_fault_handler().PLACEMENT is not implemented yet...!!");
+		//panic("page_fault_handler().PLACEMENT is not implemented yet...!!");
 	}
 	else
 	{
