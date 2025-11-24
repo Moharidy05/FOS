@@ -166,25 +166,25 @@ void fault_handler(struct Trapframe *tf)
 			//(e.g. pointing to unmarked user heap page, kernel or wrong access rights),
 			//your code is here
 
-			// [1] Check for Kernel Access in User Mode (Slave 1)
+			// check for Kernel Access in User Mode
 			if (fault_va >= USER_TOP)
 			{
 				env_exit();
 			}
 
-			// [2] Check for Write to Read-Only Access Rights (Slave 2)
+			// check for Write to Read-Only Access Rights
 			int perms = pt_get_page_permissions(faulted_env->env_page_directory, fault_va);
 			if ((perms & PERM_PRESENT))
 			{
-				// Check if it's a WRITE fault (bit 1 of tf_err) and page is NOT writable
+				// check if it's a WRITE fault (bit 1 of tf_err) and page is NOT writable
 				if ((tf->tf_err & 0x02) && !(perms & PERM_WRITEABLE))
 				{
 					env_exit();
 				}
 			}
 
-			// [3] Check for Unmarked User Heap Access (Slave 3)
-			// If it's in the User Heap range, it MUST be marked as available (UHPAGE)
+			// check for Unmarked User Heap Access
+			// If it's in the User Heap range, it MUST be marked as available
 			if (fault_va >= USER_HEAP_START && fault_va < USER_HEAP_MAX)
 			{
 				// If perms is -1 (table not present) OR PERM_AVAILABLE bit is not set
