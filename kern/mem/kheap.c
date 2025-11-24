@@ -127,7 +127,7 @@ static void insert_and_merge_free_page(struct FreePageBlock* new_block)
 {
 	struct FreePageBlock *entry, *prev_entry = NULL;
 
-	// find the correct sorted position and check for merge with (elly 2blaha) previous block
+	// find the correct sorted position and check for merge with (elly 2blha) previous block
 	LIST_FOREACH(entry, &free_page_list)
 	{
 		if (entry->start_va > new_block->start_va)
@@ -135,8 +135,7 @@ static void insert_and_merge_free_page(struct FreePageBlock* new_block)
 		prev_entry = entry;
 	}
 
-	bool merged_with_prev = 0;
-	bool merged_with_next = 0;
+	bool merged = 0;
 
 	// checking the merge with previous block
 	if (prev_entry != NULL && (prev_entry->start_va + prev_entry->size) == new_block->start_va)
@@ -144,7 +143,7 @@ static void insert_and_merge_free_page(struct FreePageBlock* new_block)
 		prev_entry->size += new_block->size;
 		free_block(new_block);
 		new_block = prev_entry; //  merged block is now the one we check next
-		merged_with_prev = 1;
+		merged = 1;
 	}
 
 	// Check merge with next block
@@ -153,11 +152,10 @@ static void insert_and_merge_free_page(struct FreePageBlock* new_block)
 		new_block->size += entry->size;
 		LIST_REMOVE(&free_page_list, entry);
 		free_block(entry);
-		merged_with_next = 1;
 	}
 
 	// if not merged with previous block, insert the new block in the sorted position
-	if (!merged_with_prev)
+	if (!merged)
 	{
 		if (prev_entry != NULL)
 			LIST_INSERT_AFTER(&free_page_list, prev_entry, new_block);
@@ -192,6 +190,7 @@ void* kmalloc(unsigned int size)
 
 	// large allocation (page allocator)
 	uint32 aligned_size = ROUNDUP(size, PAGE_SIZE);
+	uint32 alloc_start_va;
 
 	// [custom fit = worst fit]
 	// find the worst fit (largest) free block
@@ -208,7 +207,6 @@ void* kmalloc(unsigned int size)
 		}
 	}
 
-	uint32 alloc_start_va;
 
 	// if a suitable free block is found
 	if (best_fit_block != NULL)
@@ -293,15 +291,16 @@ void kfree(void* virtual_address)
 		if (alloc_entry == NULL)
 			panic("kfree: attempt to free invalid page-level address!");
 
-		// get size,
-		//remove from allocated list,
-		//and free metadata
+		// get size
 		uint32 size = alloc_entry->size;
+		// unmap physical page
+		unmap_pages(va, size);
+
+		// remove from allocated list,
+		// and free metadata
 		LIST_REMOVE(&allocated_page_list, alloc_entry);
 		free_block(alloc_entry);
 
-		// unmap the physical pages
-		unmap_pages(va, size);
 
 		// create a new free block metadata
 		struct FreePageBlock* new_free_block = (struct FreePageBlock*)alloc_block(sizeof(struct FreePageBlock));
