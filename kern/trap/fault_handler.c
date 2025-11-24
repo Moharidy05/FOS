@@ -285,49 +285,62 @@ void page_fault_handler(struct Env * faulted_env, uint32 fault_va)
 	if(wsSize < (faulted_env->page_WS_max_size))
 	{
 		//TODO: [PROJECT'25.GM#3] FAULT HANDLER I - #3 placement
-		//Your code is here
 
-		// [Fix]: Always use the Page Aligned Address for placement logic
+		// align fault address to the fault of the page
 		uint32 page_va = ROUNDDOWN(fault_va, PAGE_SIZE);
 
-		// 1. Read the page from the Page File
-		int ret = pf_read_env_page(faulted_env, (void*)page_va);
+		// allocate a physical frame before reading it's data
+		struct FrameInfo *ptr_frame_info = NULL;
+		int ret = allocate_frame(&ptr_frame_info);
+		if (ret != E_NO_MEM)
+		{
+			// map the allocated frame to the virtual address
+			map_frame(faulted_env->env_page_directory, ptr_frame_info, page_va, PERM_USER | PERM_WRITEABLE | PERM_PRESENT);
+		}
 
-		// 2. Check for Lazy Allocation (if not in Page File)
+		else
+		{
+			env_exit();
+		}
+
+		// read page data from the page file
+		ret = pf_read_env_page(faulted_env, (void*)page_va);
+
+		// handling lazy allocation ( where page is not found in page file )
 		if (ret == E_PAGE_NOT_EXIST_IN_PF)
 		{
-			// Check if it's a Stack Page OR a Heap Page
 			if ((page_va >= USTACKBOTTOM && page_va < USTACKTOP) ||
 			    (page_va >= USER_HEAP_START && page_va < USER_HEAP_MAX))
 			{
-				ret = pf_add_empty_env_page(faulted_env, page_va, 1);
+
+			}
+			else
+			{
+				// invalid access so we unmap the frame recently allocated to prevent leakage
+				unmap_frame(faulted_env->env_page_directory, page_va);
+				env_exit();
 			}
 		}
 
-		// 3. Check for Placement Failures (Invalid Access, No Memory, or Not Stack/Heap)
-		// This covers Slave 4 (Invalid Random Address not in PF)
-		if (ret != 0)
-		{
-			env_exit();
-			return;
-		}
 
-		// 4. Create and Add Working Set Element
+		//update working set we add the control blck and add it to the tail of the list
 		struct WorkingSetElement *new_ws = env_page_ws_list_create_element(faulted_env, page_va);
 		LIST_INSERT_TAIL(&(faulted_env->page_WS_list), new_ws);
 
-		// 5. Update Clock Hand (page_last_WS_element) if it's the first element or NULL
-		if (faulted_env->page_last_WS_element == NULL)
-		{
-			faulted_env->page_last_WS_element = new_ws;
-		}
-		else if (LIST_SIZE(&(faulted_env->page_WS_list)) == 1)
-		{
-			faulted_env->page_last_WS_element = new_ws;
-		}
 
-		//Comment the following line
-		//panic("page_fault_handler().PLACEMENT is not implemented yet...!!");
+		// update the clock to point to the first element  if working space is full
+		if (LIST_SIZE(&(faulted_env->page_WS_list)) == faulted_env->page_WS_max_size)
+		{
+			if (faulted_env->page_last_WS_element == NULL)
+			{
+				faulted_env->page_last_WS_element = LIST_FIRST(&(faulted_env->page_WS_list));
+			}
+		}
+		else
+		{
+			// if the working set isn't full yet (still being filled) the clock must be null
+			faulted_env->page_last_WS_element = NULL;
+		}
 	}
 	else
 	{
