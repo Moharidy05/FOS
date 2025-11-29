@@ -1,1 +1,4 @@
 /bochs.log
+.settings/
+obj/
+.project
