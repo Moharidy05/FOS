@@ -192,45 +192,112 @@ void* kmalloc(unsigned int size)
 	uint32 aligned_size = ROUNDUP(size, PAGE_SIZE);
 	uint32 alloc_start_va;
 
-	// [custom fit = worst fit]
-	// find the worst fit (largest) free block
-	struct FreePageBlock *best_fit_block = NULL;
+	struct FreePageBlock *target_block = NULL;
 	struct FreePageBlock *entry;
-	LIST_FOREACH(entry, &free_page_list)
+
+	uint32 strategy = get_kheap_strategy();
+
+	// Strategy Implementation
+	// CUSTOMFIT: Exact Fit (Best Fit with diff=0), else Worst Fit
+	// WORSTFIT:  Always Largest Fit
+	// BESTFIT:   Always Smallest Fit >= size
+
+	if (strategy == KHP_PLACE_CUSTOMFIT)
 	{
-		if (entry->size >= aligned_size)
+		struct FreePageBlock *worst_fit_block = NULL;
+
+		LIST_FOREACH(entry, &free_page_list)
 		{
-			if (best_fit_block == NULL || entry->size > best_fit_block->size)
+			if (entry->size >= aligned_size)
 			{
-				best_fit_block = entry;
+				// exact fit checking
+				if (entry->size == aligned_size)
+				{
+					target_block = entry;
+					break;
+				}
+
+
+				if (worst_fit_block == NULL || entry->size > worst_fit_block->size)
+				{
+					worst_fit_block = entry;
+				}
+			}
+		}
+
+		// If no exact fit found, use worst fit
+		if (target_block == NULL)
+		{
+			target_block = worst_fit_block;
+		}
+	}
+	else if (strategy == KHP_PLACE_WORSTFIT)
+	{
+		LIST_FOREACH(entry, &free_page_list)
+		{
+			if (entry->size >= aligned_size)
+			{
+				if (target_block == NULL || entry->size > target_block->size)
+				{
+					target_block = entry;
+				}
+			}
+		}
+	}
+	else if (strategy == KHP_PLACE_BESTFIT)
+	{
+		LIST_FOREACH(entry, &free_page_list)
+		{
+			if (entry->size >= aligned_size)
+			{
+				if (entry->size == aligned_size)
+				{
+					target_block = entry;
+					break;
+				}
+				if (target_block == NULL || entry->size < target_block->size)
+				{
+					target_block = entry;
+				}
+			}
+		}
+	}
+	else if (strategy == KHP_PLACE_FIRSTFIT)
+	{
+		LIST_FOREACH(entry, &free_page_list)
+		{
+			if (entry->size >= aligned_size)
+			{
+				target_block = entry;
+				break;
 			}
 		}
 	}
 
 
 	// if a suitable free block is found
-	if (best_fit_block != NULL)
+	if (target_block != NULL)
 	{
-		alloc_start_va = best_fit_block->start_va;
+		alloc_start_va = target_block->start_va;
 
-		// remove it from the free list
-		LIST_REMOVE(&free_page_list, best_fit_block);
+
+		LIST_REMOVE(&free_page_list, target_block);
 
 		// if ther is remaining space create a new free block for the remaining
-		if (best_fit_block->size > aligned_size)
+		if (target_block->size > aligned_size)
 		{
 			struct FreePageBlock* remainder_block = (struct FreePageBlock*)alloc_block(sizeof(struct FreePageBlock));
 			if (remainder_block == NULL)
 				panic("kmalloc: out of metadata memory!");
 
-			remainder_block->start_va = best_fit_block->start_va + aligned_size;
-			remainder_block->size = best_fit_block->size - aligned_size;
+			remainder_block->start_va = target_block->start_va + aligned_size;
+			remainder_block->size = target_block->size - aligned_size;
 
 			// insert the remained block bak again
 			insert_and_merge_free_page(remainder_block);
 		}
 
-		free_block(best_fit_block);
+		free_block(target_block);
 	}
 	// if no block found allocate from the break
 	else
@@ -242,7 +309,7 @@ void* kmalloc(unsigned int size)
 			return NULL;
 		}
 
-		// increase the break boundaries (hanerfa3ha 4waya 3shan na5od mesa7a extra)
+		// increase the break boundaries
 		kheapPageAllocBreak += aligned_size;
 	}
 
@@ -261,7 +328,6 @@ void* kmalloc(unsigned int size)
 	LIST_INSERT_HEAD(&allocated_page_list, new_alloc);
 
 	return (void*)alloc_start_va;
-
 }
 
 //=================================
@@ -336,7 +402,7 @@ unsigned int kheap_virtual_address(unsigned int physical_address)
 	struct FrameInfo *ptr_frame_info = to_frame_info(physical_address);
 
 	// Check if the frame is valid and currently allocated
-	// (if references == 0 then it's a free frame so it has no valid VA)
+
 	if (ptr_frame_info->references == 0)
 	{
 		return 0;
