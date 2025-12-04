@@ -287,10 +287,10 @@ void sys_allocate_user_mem(uint32 virtual_address, uint32 size)
 
 void sys_env_set_priority(int32 envID, int priority)
 {
-	//TODO: [PROJECT'25.IM#4] CPU SCHEDULING - #1 System Calls - Add suitable code here
-	//Your code is here
-	//Comment the following line
-	panic("sys_env_set_priority() is not implemented yet...!!");
+    //TODO: [PROJECT'25.IM#4] CPU SCHEDULING - #1 System Calls - Add suitable code here
+     syscall(SYS_env_set_priority, (uint32)envID, (uint32)priority, 0, 0, 0);
+    //Comment the following line
+    //panic("sys_env_set_priority() is not implemented yet...!!");
 }
 //=============================================
 

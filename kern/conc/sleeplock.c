@@ -26,18 +26,43 @@ void init_sleeplock(struct sleeplock *lk, char *name)
 
 void acquire_sleeplock(struct sleeplock *lk)
 {
-	//TODO: [PROJECT'25.IM#5] KERNEL PROTECTION: #4 SLEEP LOCK - acquire_sleeplock
-	//Your code is here
-	//Comment the following line
-	panic("acquire_sleeplock() is not implemented yet...!!");
+    //TODO: [PROJECT'25.IM#5] KERNEL PROTECTION: #4 SLEEP LOCK - acquire_sleeplock [Done]
+    //Your code is here
+    //Comment the following line
+    //panic("acquire_sleeplock() is not implemented yet...!!");
+
+    //check lk access
+    acquire_kspinlock(&(lk->lk));
+    while (lk->locked)
+    {
+        sleep(&(lk->chan), &(lk->lk));
+//        acquire_kspinlock(&(lk->lk));
+
+    }
+
+    //mark lk as busy
+    lk->locked = 1;
+    release_kspinlock(&(lk->lk));
+
 }
 
 void release_sleeplock(struct sleeplock *lk)
 {
-	//TODO: [PROJECT'25.IM#5] KERNEL PROTECTION: #5 SLEEP LOCK - release_sleeplock
-	//Your code is here
-	//Comment the following line
-	panic("release_sleeplock() is not implemented yet...!!");
+    //TODO: [PROJECT'25.IM#5] KERNEL PROTECTION: #5 SLEEP LOCK - release_sleeplock [Done]
+    //Your code is here
+    //Comment the following line
+    //panic("release_sleeplock() is not implemented yet...!!");
+
+    //mark lk as free
+    acquire_kspinlock(&(lk->lk));
+    lk->locked = 0;
+    lk->pid = 0;
+    release_kspinlock(&(lk->lk));
+
+    //wakeup all blocked processes on lk channel
+    if (queue_size(&(lk->chan.queue)) > 0)
+        wakeup_all(&lk->chan);
+
 }
 
 int holding_sleeplock(struct sleeplock *lk)

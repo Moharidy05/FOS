@@ -19,11 +19,14 @@
 #include "../mem/kheap.h"
 #include "../mem/memory_manager.h"
 #include "../mem/shared_memory_manager.h"
-
+#include <kern/mem/boot_memory_manager.h>
 
 /******************************/
 /* DATA & DECLARATIONS */
 /******************************/
+
+
+
 
 struct Env* envs = NULL;		// All environments
 
@@ -654,7 +657,6 @@ void sched(void)
 	context_switch(&(p->context), mycpu()->scheduler);
 	mycpu()->intena = intena;
 }
-
 
 //===============================
 // 9) SWITCH VIRTUAL MEMORYs:

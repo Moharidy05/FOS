@@ -116,7 +116,7 @@ struct Env {
 	int priority;					// Current priority
 	char prog_name[PROGNAMELEN];	// Program name (to print it via USER.cprintf in multitasking)
 	void* channel;					// Address of the channel that it's blocked (sleep) on it
-
+	struct WS_List ALTWS;
 	//================
 	/*ADDRESS SPACE*/
 	//================
@@ -178,7 +178,7 @@ struct Env {
 	//==================
 	/*CPU PRIORITY RR Sched...*/
 	//==================
-
+		uint32 starvation_counter;
 	//================
 	/*STATISTICS...*/
 	//================

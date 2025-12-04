@@ -34,6 +34,9 @@ struct
 	struct kspinlock mfllock;					// Lock to protect the frame info lists
 } MemFrameLists;
 
+
+
+
 //BOOT TIME [KERNEL SPACE]
 void 	boot_map_range(uint32 *ptr_page_directory, uint32 virtual_address, uint32 size, uint32 physical_address, int perm);
 uint32* boot_get_page_table(uint32 *ptr_page_directory, uint32 virtual_address, int create);

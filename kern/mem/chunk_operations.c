@@ -147,16 +147,35 @@ void* sys_sbrk(int numOfPages)
 //=====================================
 void allocate_user_mem(struct Env* e, uint32 virtual_address, uint32 size)
 {
-	/*====================================*/
-	/*Remove this line before start coding*/
-//		inctst();
-//		return;
-	/*====================================*/
+	/*====================================/
+	/Remove this line before start coding/
+
+	/====================================*/
 
 	//TODO: [PROJECT'25.IM#2] USER HEAP - #2 allocate_user_mem
-	//Your code is here
+	 if (size == 0) return;
+
+	 uint32 start = ROUNDDOWN(virtual_address, PAGE_SIZE);
+	 uint32 end   = ROUNDUP(virtual_address + size, PAGE_SIZE);
+
+	 for(uint32 virtual_address = start; virtual_address < end; virtual_address += PAGE_SIZE) {
+		 uint32* ptr_page_table;
+
+	     int badr = get_page_table(e->env_page_directory, virtual_address, &ptr_page_table);
+
+
+	     if (badr == TABLE_NOT_EXIST) {
+	         create_page_table(e->env_page_directory,virtual_address);
+	     }
+	     (void*)get_page_table(e->env_page_directory, virtual_address, &ptr_page_table);
+
+
+	     pt_set_page_permissions(e->env_page_directory, virtual_address, PERM_UHPAGE | PERM_AVAILABLE, 0);
+	 }
+
+
 	//Comment the following line
-	panic("allocate_user_mem() is not implemented yet...!!");
+	//panic("allocate_user_mem() is not implemented yet...!!");
 }
 
 //=====================================
@@ -166,14 +185,36 @@ void free_user_mem(struct Env* e, uint32 virtual_address, uint32 size)
 {
 	/*====================================*/
 	/*Remove this line before start coding*/
-//		inctst();
-//		return;
+
 	/*====================================*/
 
 	//TODO: [PROJECT'25.IM#2] USER HEAP - #4 free_user_mem
-	//Your code is here
+	    if (size == 0)
+	    	return;
+
+	    uint32 start = ROUNDDOWN(virtual_address, PAGE_SIZE);
+	    uint32 end   = ROUNDUP(virtual_address + size, PAGE_SIZE);
+
+	    for (uint32 virtual_address = start; virtual_address < end; virtual_address += PAGE_SIZE)
+	    {
+
+	        env_page_ws_invalidate(e, virtual_address);
+
+
+	        uint32* pt;
+	        int badr_free= get_page_table(e->env_page_directory, virtual_address, &pt);
+	        if (badr_free != TABLE_NOT_EXIST)
+	        {
+	            pt_set_page_permissions(e->env_page_directory, virtual_address, 0, PERM_UHPAGE | PERM_AVAILABLE);
+	        }
+
+	        env_page_ws_invalidate(e, virtual_address);
+	        unmap_frame(e->env_page_directory, virtual_address);
+	    }
+
+
 	//Comment the following line
-	panic("free_user_mem() is not implemented yet...!!");
+	//panic("free_user_mem() is not implemented yet...!!");
 }
 
 //=====================================

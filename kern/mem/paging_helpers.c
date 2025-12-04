@@ -71,13 +71,13 @@ inline int pt_get_page_permissions(uint32* directory, uint32 virtual_address )
 //REMEMBER: to invalidate the TLB cache
 inline void pt_clear_page_table_entry(uint32* directory, uint32 virtual_address)
 {
-	//TODO: PRACTICE: fill this function.
 	uint32* ptr_page_table = NULL;
 	int ret = get_page_table(directory, virtual_address, &ptr_page_table);
 
 	if (ptr_page_table != NULL)
 	{
-		ptr_page_table[PTX(virtual_address)] = 0;
+		uint32 pte_available_bits = ptr_page_table[PTX(virtual_address)] & PERM_AVAILABLE;
+		ptr_page_table[PTX(virtual_address)] = pte_available_bits;
 		tlb_invalidate(directory, (void*)virtual_address);
 	}
 	else

@@ -16,7 +16,7 @@ uint32 isSchedMethodRR(){return (scheduler_method == SCH_RR);}
 uint32 isSchedMethodMLFQ(){return (scheduler_method == SCH_MLFQ); }
 uint32 isSchedMethodBSD(){return(scheduler_method == SCH_BSD); }
 uint32 isSchedMethodPRIRR(){return(scheduler_method == SCH_PRIRR); }
-
+uint32 starvation_threshold = 0; // To store the threshold for starvation
 //===================================================================================//
 //============================ SCHEDULER FUNCTIONS ==================================//
 //===================================================================================//
@@ -221,15 +221,31 @@ void sched_init_BSD(uint8 numOfLevels, uint8 quantum)
 //======================================
 void sched_init_PRIRR(uint8 numOfPriorities, uint8 quantum, uint32 starvThresh)
 {
-	{
-		//TODO: [PROJECT'25.IM#4] CPU SCHEDULING - #2 sched_init_PRIRR
-		//Your code is here
-		//Comment the following line
-		panic("sched_init_PRIRR() is not implemented yet...!!");
+	//TODO: [PROJECT'25.IM#4] CPU SCHEDULING - #2 sched_init_PRIRR
+	// 1. Set the number of ready queues.
+	    num_of_ready_queues = numOfPriorities;
+
+	// 2. Store the starvation threshold in the global variable
+	    starvation_threshold = starvThresh;
+
+    // 3. Allocate memory for the queues and quantums
+	    #if USE_KHEAP
+	        sched_delete_ready_queues(); //clear old queues if any
+	        ProcessQueues.env_ready_queues = kmalloc(num_of_ready_queues * sizeof(struct Env_Queue));
+	        quantums = kmalloc(num_of_ready_queues * sizeof(uint8));
+	    #endif
+
+    // 4. Initialize every queue and set the quantum
+	    for (int i = 0; i < num_of_ready_queues; i++)
+	    {
+	        init_queue(&(ProcessQueues.env_ready_queues[i]));
+	        quantums[i] = quantum; // all priorities get the same time slice
+	    }
+
+	// 5. Set the initial Hardware Timer to the quantum of the highest priority
+	   kclock_set_quantum(quantums[0]);
 
 
-
-	}
 	//=========================================
 	//DON'T CHANGE THESE LINES=================
 	uint16 cnt0 = kclock_read_cnt0_latch() ; //read after write to ensure it's set to the desired value
@@ -306,14 +322,40 @@ struct Env* fos_scheduler_BSD()
 //=============================
 struct Env* fos_scheduler_PRIRR()
 {
-	/*To protect process Qs (or info of current process) in multi-CPU************************/
+	//TODO: [PROJECT'25.IM#4] CPU SCHEDULING - #3 fos_scheduler_PRIRR
+	// 1. Ensure we hold the lock
 	if(!holding_kspinlock(&ProcessQueues.qlock))
 		panic("fos_scheduler_PRIRR: q.lock is not held by this CPU while it's expected to be.");
-	/****************************************************************************************/
-	//TODO: [PROJECT'25.IM#4] CPU SCHEDULING - #3 fos_scheduler_PRIRR
-	//Your code is here
-	//Comment the following line
-	panic("fos_scheduler_PRIRR() is not implemented yet...!!");
+
+	struct Env *next_env = NULL;
+	struct Env *cur_env = get_cpu_proc();
+
+	// 2. If there is a currently running process, return it to the Ready Queue
+	if (cur_env != NULL)
+	{
+		cur_env->starvation_counter=0;
+		sched_insert_ready(cur_env);
+	}
+
+	// 3. Find the highest priority queue that is not empty
+	for (int i = 0; i < num_of_ready_queues ; i++)
+	{
+		if (queue_size(&(ProcessQueues.env_ready_queues[i])) > 0)
+		{
+			// 4. Dequeue the first process
+			next_env = dequeue(&(ProcessQueues.env_ready_queues[i]));
+
+			// 5. Set the CPU Quantum
+			kclock_set_quantum(quantums[i]);
+
+			next_env->starvation_counter=0;
+			// 6. Return next process
+			return next_env;
+		}
+	}
+
+	// 7. No process found
+	return NULL;
 }
 
 //========================================
@@ -322,15 +364,37 @@ struct Env* fos_scheduler_PRIRR()
 //========================================
 void clock_interrupt_handler(struct Trapframe* tf)
 {
-	if (isSchedMethodPRIRR())
-	{
 		//TODO: [PROJECT'25.IM#4] CPU SCHEDULING - #4 clock_interrupt_handler
-		//Your code is here
-		//Comment the following line
-		panic("clock_interrupt_handler() is not implemented yet...!!");
+	if (isSchedMethodPRIRR())
+		{
 
+		    acquire_kspinlock(&ProcessQueues.qlock);
+			for (int i = 0; i < NENV; i++)
+			{
+				if (envs[i].env_status == ENV_READY)
+				{
+					envs[i].starvation_counter++;
 
+					// 1. Check Threshold
+					if (envs[i].starvation_counter >= starvation_threshold)
+					{
+						envs[i].starvation_counter = 0;
 
+						// 2. Boost priority if not already at Highest (0)
+						if (envs[i].priority > 0)
+						{
+							sched_remove_ready(&envs[i]);
+
+							// 3. Decrement to boost (Move closer to 0)
+							envs[i].priority--;
+
+							sched_insert_ready(&envs[i]);
+						}
+					}
+				}
+			}
+
+			release_kspinlock(&ProcessQueues.qlock);
 	}
 
 	/********DON'T CHANGE THESE LINES***********/

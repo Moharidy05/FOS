@@ -216,6 +216,8 @@ struct FrameInfo {
 	uint16 references;
 	struct Env *proc;
 	unsigned char isBuffered;
+	uint8 inWS; // Indicates if the frame is in the Working Set
+		struct WorkingSetElement *wsElement; // Pointer to the WS element
 };
 
 #endif /* !__ASSEMBLER__ */

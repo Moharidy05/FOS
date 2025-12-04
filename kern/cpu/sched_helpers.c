@@ -12,6 +12,8 @@
 
 //void on_clock_update_WS_time_stamps();
 extern void cleanup_buffers(struct Env* e);
+
+extern uint32 starvation_threshold;
 //================
 
 //=================================================================================//
@@ -690,15 +692,33 @@ int get_load_average()
 /********* for Priority RR Scheduler *************/
 void env_set_priority(int envID, int priority)
 {
-	//TODO: [PROJECT'25.IM#4] CPU SCHEDULING - #1 env_set_priority
-	//Your code is here
+	  //TODO: [PROJECT'25.IM#4] CPU SCHEDULING - #1 env_set_priority
+	    acquire_kspinlock(&(ProcessQueues.qlock));
+	    struct Env *env;
+	    // 1. Find the environment object by its ID
+	    int ret = envid2env(envID, &env, 0);
+	    if (ret < 0) return; // Environment not found, do nothing
+
+	    // 2. Update the priority fields
+	    env->priority = priority;
+	    env->starvation_counter = 0;  // Reset counter since it just got a fresh priority
+
+	    // 3. If it is currently READY, we must move it to the correct queue!
+	    if (env->env_status == ENV_READY)
+	    {
+
+	        sched_remove_ready(env); // Remove from the old priority queue
+	        sched_insert_ready(env); // Insert into the new priority queue
+	    }
+	    release_kspinlock(&(ProcessQueues.qlock));
+
 	//Comment the following line
-	panic("env_set_priority() is not implemented yet...!!");
+	//panic("env_set_priority() is not implemented yet...!!");
 }
 void sched_set_starv_thresh(uint32 starvThresh)
 {
 	//TODO: [PROJECT'25.IM#4] CPU SCHEDULING - #1 sched_set_starv_thresh
-	//Your code is here
+	    starvation_threshold = starvThresh;
 	//Comment the following line
-	panic("sched_set_starv_thresh() is not implemented yet...!!");
+	//panic("sched_set_starv_thresh() is not implemented yet...!!");
 }
