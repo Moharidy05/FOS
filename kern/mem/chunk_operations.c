@@ -158,19 +158,18 @@ void allocate_user_mem(struct Env* e, uint32 virtual_address, uint32 size)
 	 uint32 start = ROUNDDOWN(virtual_address, PAGE_SIZE);
 	 uint32 end   = ROUNDUP(virtual_address + size, PAGE_SIZE);
 
-	 for(uint32 virtual_address = start; virtual_address < end; virtual_address += PAGE_SIZE) {
+	 for(uint32 va = start; va < end; va += PAGE_SIZE) {
 		 uint32* ptr_page_table;
 
-	     int badr = get_page_table(e->env_page_directory, virtual_address, &ptr_page_table);
-
+	     int badr = get_page_table(e->env_page_directory, va, &ptr_page_table);
 
 	     if (badr == TABLE_NOT_EXIST) {
-	         create_page_table(e->env_page_directory,virtual_address);
+	         create_page_table(e->env_page_directory,va);
 	     }
-	     (void*)get_page_table(e->env_page_directory, virtual_address, &ptr_page_table);
+	     (void*)get_page_table(e->env_page_directory,va, &ptr_page_table);
 
 
-	     pt_set_page_permissions(e->env_page_directory, virtual_address, PERM_UHPAGE | PERM_AVAILABLE, 0);
+	     pt_set_page_permissions(e->env_page_directory, va, PERM_UHPAGE , 0);
 	 }
 
 
@@ -195,21 +194,18 @@ void free_user_mem(struct Env* e, uint32 virtual_address, uint32 size)
 	    uint32 start = ROUNDDOWN(virtual_address, PAGE_SIZE);
 	    uint32 end   = ROUNDUP(virtual_address + size, PAGE_SIZE);
 
-	    for (uint32 virtual_address = start; virtual_address < end; virtual_address += PAGE_SIZE)
+	    for (uint32 va = start; va < end; va += PAGE_SIZE)
 	    {
 
-	        env_page_ws_invalidate(e, virtual_address);
-
-
 	        uint32* pt;
-	        int badr_free= get_page_table(e->env_page_directory, virtual_address, &pt);
+	        int badr_free = get_page_table(e->env_page_directory, va, &pt);
 	        if (badr_free != TABLE_NOT_EXIST)
 	        {
-	            pt_set_page_permissions(e->env_page_directory, virtual_address, 0, PERM_UHPAGE | PERM_AVAILABLE);
+	            pt_set_page_permissions(e->env_page_directory, va, 0, PERM_UHPAGE);
+	            env_page_ws_invalidate(e, va);
+	            unmap_frame(e->env_page_directory, va);
 	        }
 
-	        env_page_ws_invalidate(e, virtual_address);
-	        unmap_frame(e->env_page_directory, virtual_address);
 	    }
 
 

@@ -25,17 +25,16 @@ void uheap_init()
 	{
 		initialize_dynamic_allocator(USER_HEAP_START, USER_HEAP_START + DYN_ALLOC_MAX_SIZE);
 		uheapPlaceStrategy = sys_get_uheap_strategy();
-
-		// FIX: Add +PAGE_SIZE to match test expectation (Guard Page/Offset)
-		// Test expects 0x82001000, not 0x82000000
-		uheapPageAllocStart = ROUNDUP(dynAllocEnd + PAGE_SIZE, PAGE_SIZE);
+		uheapPageAllocStart = dynAllocEnd + PAGE_SIZE;
 		uheapPageAllocBreak = uheapPageAllocStart;
-
 		for (int i = 0; i < allocs; i++) {
 			alloc[i].va = 0;
 			alloc[i].size = 0;
 			alloc[i].used = 0;
 		}
+
+
+
 
 		__firstTimeFlag = 0;
 	}
@@ -78,132 +77,120 @@ void* malloc(uint32 size)
 	//==============================================================
 	//TODO: [PROJECT'25.IM#2] USER HEAP - #1 malloc
 
+
 	if (size <= DYN_ALLOC_MAX_BLOCK_SIZE){
+		cprintf("malloc: using dynamic allocator for size=%d\n", size);
 	        return alloc_block(size);
+
 	}
-
 	uint32 aligned_size = ROUNDUP(size, PAGE_SIZE);
-	uint32 strategy = sys_get_uheap_strategy();
 
+	//mawgoda f sys calls (by badr) for ahmed farouk (shared memory)
+	uint32 fitttt = sys_get_uheap_strategy();
 
-	uint32 best_fit_addr = 0;
-	uint32 min_gap_size = 0xFFFFFFFF;
-	uint32 worst_fit_addr = 0;
-	uint32 max_gap_size = 0;
+	uint32 best_add = 0;
+	uint32 min_gapppp = 0xFFFFFFFF;
+	uint32 worst_add = 0;
+	uint32 max_gappp = 0;
 
-	uint32 current_addr = uheapPageAllocStart;
+	uint32 current_add = uheapPageAllocStart;
 
-	while (current_addr < uheapPageAllocBreak)
+	while (current_add < uheapPageAllocBreak)
 	{
 
-		uint32 next_alloc_addr = 0xFFFFFFFF;
-		uint32 next_alloc_size = 0;
+		uint32 next_Alloc_add = 0xFFFFFFFF;
+		uint32 next_Alloc_size = 0;
 		int found_next = 0;
 
 		for (int i = 0; i < allocs; i++)
 		{
 			if (alloc[i].used)
 			{
-				uint32 addr = (uint32)alloc[i].va;
-				if (addr >= current_addr)
+				uint32 add = (uint32)alloc[i].va;
+				if (add >= current_add)
 				{
-					if (addr < next_alloc_addr)
+					if (add < next_Alloc_add)
 					{
-						next_alloc_addr = addr;
-						next_alloc_size = alloc[i].size;
+						next_Alloc_add = add;
+						next_Alloc_size = alloc[i].size;
 						found_next = 1;
 					}
 				}
 			}
 		}
 
-
+		// 3lshan a3rf el next allocation b'a feen
 		uint32 limit;
 
 		if (found_next) {
-		    limit = next_alloc_addr;
+		    limit = next_Alloc_add;
 		} else {
 		    limit = uheapPageAllocBreak;
 		}
 
-		uint32 free_size = limit - current_addr;
+		uint32 free_size = limit - current_add;
 
 		if (free_size >= aligned_size)
 		{
-			// CUSTOM FIT (exact (best ta2reban) fit then worst)
-			if (strategy == UHP_PLACE_CUSTOMFIT)
+			if (fitttt == UHP_PLACE_CUSTOMFIT)
 			{
-				// priority 1: exact fit (best Fit 3ashan m7d4 yz3l :) )
 				if (free_size == aligned_size) {
-					best_fit_addr = current_addr;
+					best_add = current_add;
 					break;
 				}
 
-				// priority 2: Worst Fit (largest gfap)
-				if (free_size > max_gap_size) {
-					max_gap_size = free_size;
-					worst_fit_addr = current_addr;
+				if (free_size > max_gappp) {
+					max_gappp = free_size;
+					worst_add = current_add;
 				}
 			}
-			// BEST FIT
-			else if (strategy == UHP_PLACE_BESTFIT)
+			else if (fitttt == UHP_PLACE_BESTFIT)
 			{
-				if (free_size < min_gap_size) {
-					min_gap_size = free_size;
-					best_fit_addr = current_addr;
+				if (free_size < min_gapppp) {
+					min_gapppp = free_size;
+					best_add = current_add;
 				}
 			}
-			// WORST FIT
-			else if (strategy == UHP_PLACE_WORSTFIT)
+			else if (fitttt == UHP_PLACE_WORSTFIT)
 			{
-				if (free_size > max_gap_size) {
-					max_gap_size = free_size;
-					worst_fit_addr = current_addr;
+				if (free_size > max_gappp) {
+					max_gappp = free_size;
+					worst_add = current_add;
 				}
 			}
-			// FIRST FIT
-			else if (strategy == UHP_PLACE_FIRSTFIT)
-			{
-				best_fit_addr = current_addr;
-				goto Found;
-			}
+
 		}
 
 
 		if (found_next)
-			current_addr = next_alloc_addr + next_alloc_size;
+			current_add = next_Alloc_add + next_Alloc_size;
 		else
 			break;
 	}
 
+	if (fitttt == UHP_PLACE_CUSTOMFIT) {
 
-	if (strategy == UHP_PLACE_CUSTOMFIT) {
-		// exact fit was found, best_fit_addr is set
-		// if not go back to Worst Fit
-		if (best_fit_addr == 0 && worst_fit_addr != 0) {
-			best_fit_addr = worst_fit_addr;
+		if (best_add == 0 && worst_add != 0) {
+			best_add = worst_add;
 		}
 	}
-	else if (strategy == UHP_PLACE_WORSTFIT) {
-		best_fit_addr = worst_fit_addr;
+	else if (fitttt == UHP_PLACE_WORSTFIT) {
+		best_add = worst_add;
 	}
 
-Found:
-
-	if (best_fit_addr != 0) {
+	if (best_add != 0) {
 		for (int i = 0; i < allocs; i++){
 			if (!alloc[i].used){
-				alloc[i].va = (void*)best_fit_addr;
+				alloc[i].va = (void*)best_add;
 				alloc[i].size = aligned_size;
 				alloc[i].used = 1;
 				break;
 			}
 		}
-		sys_allocate_user_mem(best_fit_addr , aligned_size);
-		return (void*)best_fit_addr;
+		sys_allocate_user_mem(best_add , aligned_size);
+		return (void*)best_add;
 	}
 
-	//If no gap found extend the Heap
 	if (aligned_size <= USER_HEAP_MAX - uheapPageAllocBreak)
 	{
 		uint32 alloc_start = uheapPageAllocBreak;
@@ -222,6 +209,11 @@ Found:
 	}
 
 	return NULL;
+
+	//Comment the following line
+	//panic("malloc() is not implemented yet...!!");
+
+
 }
 
 //=================================
@@ -232,76 +224,228 @@ void free(void* virtual_address)
 	//TODO: [PROJECT'25.IM#2] USER HEAP - #3 free
 
 	 uint32 va = (uint32)virtual_address;
-	    if (virtual_address == 0)
-	        return;
-
-	    if (va >= USER_HEAP_START && va < uheapPageAllocStart)
-	    {
-	        free_block(virtual_address);
-	        return;
-	    }
-
-	    if (va >= uheapPageAllocStart && va < uheapPageAllocBreak)
-	    {
-	        int block_size = 0;
-	        int ii = -1;
+	 if (virtual_address == 0)
+		 return;
 
 
-	        for (int i = 0; i < allocs; i++)
-	        {
-	        	if (alloc[i].used && alloc[i].va == virtual_address)
-	            {
-	                block_size = alloc[i].size;
-	                ii = i;
-	                break;
-	            }
-	        }
+	 if (va >= USER_HEAP_START && va < uheapPageAllocStart)
+	 {
+		 free_block(virtual_address);
+		 return;
+	 }
 
-	        if (ii == -1)
-	            panic("free(): invalid address in page allocator");
+	 if (va >= uheapPageAllocStart && va < uheapPageAllocBreak)
+	 {
+		 uint32 block_size = 0;
+		 int ii = -1;
+
+		 // bdwr 3la el allocation
+		 for (int i = 0; i < allocs; i++)
+		 {
+			 if (alloc[i].used && alloc[i].va == virtual_address)
+			 {
+				 block_size = alloc[i].size;
+				 ii = i;
+	             break;
+			 }
+		 }
+
+		 if (ii == -1)
+			 panic("free(): invalid address in page allocator");
+
+		 //  b3ml el free
+		 alloc[ii].used = 0;
+
+		 for (int i = 0; i < allocs; i++)
+		 {
+			 if (!alloc[i].used && alloc[i].va != 0)
+			 {
+				 uint32 nextttt_start = (uint32)alloc[i].va;
+				 uint32 nextttt_size = alloc[i].size;
+
+				 if (va + block_size == nextttt_start)
+				 {
+					 block_size += nextttt_size;
+					 alloc[i].va = 0;
+					 alloc[i].size = 0;
+				 }
+			 }
+		 }
 
 
-	        alloc[ii].used = 0;
-	        alloc[ii].va = 0;
-	        alloc[ii].size = 0;
+		 for (int i = 0; i < allocs; i++)
+		 {
+			 if (!alloc[i].used && alloc[i].va != 0)
+			 {
+				 uint32 prevvvv_start = (uint32)alloc[i].va;
+				 uint32 prevvvv_size = alloc[i].size;
 
-	        sys_free_user_mem(va, block_size);
+				 if (prevvvv_start + prevvvv_size == va)
+				 {
+					 va = prevvvv_start;
+					 block_size += prevvvv_size;
+					 alloc[i].va = 0;
+					 alloc[i].size = 0;
+				 }
+			 }
+		 }
+
+		 sys_free_user_mem(va, block_size);
+
+	     if (va + block_size == uheapPageAllocBreak)
+	     {
+	    	 uint32 new_breakkkk = uheapPageAllocStart;
+	         for (int i = 0; i < allocs; i++)
+	         {
+	        	 if (alloc[i].used && (uint32)alloc[i].va + alloc[i].size > new_breakkkk)
+	             {
+	                 new_breakkkk = (uint32)alloc[i].va + alloc[i].size;
+	             }
+	         }
+	         uheapPageAllocBreak = new_breakkkk;
+	     }
 
 
-	        if (va + block_size == uheapPageAllocBreak)
-	        {
-	            uint32 new_break = uheapPageAllocStart;
-	            for (int i = 0; i < allocs; i++)
-	            {
-	                if (alloc[i].used && (uint32)alloc[i].va + alloc[i].size > new_break)
-	                {
-	                    new_break = (uint32)alloc[i].va + alloc[i].size;
-	                }
-	            }
-	            uheapPageAllocBreak = new_break;
-	        }
+	     return;
+	 }
 
-	        return;
-	    }
+	 // akhr case (lw invalid address)
+	 panic("free(): address not within user heap");
 
-	    panic("free(): address not within user heap");
+
+
+	//Comment the following line
+	//panic("free() is not implemented yet...!!");
 }
 
 //=================================
 // [3] ALLOCATE SHARED VARIABLE:
 //=================================
-void* smalloc(char *sharedVarName, uint32 size, uint8 isWritable)
-{
-	//==============================================================
-	//DON'T CHANGE THIS CODE========================================
-	uheap_init();
-	if (size == 0) return NULL ;
-	//==============================================================
+void *smalloc(char *sharedVarName, uint32 size, uint8 isWritable) {
+  //==============================================================
+  // DON'T CHANGE THIS CODE========================================
+  uheap_init();
+  if (size == 0)
+    return NULL;
+  //==============================================================
 
-	//TODO: [PROJECT'25.IM#3] SHARED MEMORY - #2 smalloc
-	//Your code is here
-	//Comment the following line
-	panic("smalloc() is not implemented yet...!!");
+  // TODO: [PROJECT'25.IM#3] SHARED MEMORY - #2 smalloc
+  // Your code is here
+  // Comment the following line
+  // panic("smalloc() is not implemented yet...!!");
+
+  uint32 aligned_size = ROUNDUP(size, PAGE_SIZE);
+  uint32 strategy = sys_get_uheap_strategy();
+  uint32 best_fit_addr = 0;
+  uint32 min_gap_size = 0xFFFFFFFF;
+  uint32 worst_fit_addr = 0;
+  uint32 max_gap_size = 0;
+  uint32 current_addr = uheapPageAllocStart;
+  while (current_addr < uheapPageAllocBreak) {
+    uint32 next_alloc_addr = 0xFFFFFFFF;
+    uint32 next_alloc_size = 0;
+    int found_next = 0;
+
+    for (int i = 0; i < allocs; i++) {
+      if (alloc[i].used) {
+        uint32 addr = (uint32)alloc[i].va;
+        if (addr >= current_addr) {
+          if (addr < next_alloc_addr) {
+            next_alloc_addr = addr;
+            next_alloc_size = alloc[i].size;
+            found_next = 1;
+          }
+        }
+      }
+    }
+
+    uint32 limit;
+
+    if (found_next)
+      limit = next_alloc_addr;
+    else
+      limit = uheapPageAllocBreak;
+    uint32 free_size = limit - current_addr;
+
+    if (free_size >= aligned_size) {
+      if (strategy == UHP_PLACE_CUSTOMFIT) {
+
+        if (free_size == aligned_size) {
+          best_fit_addr = current_addr;
+          break;
+        }
+
+        if (free_size > max_gap_size) {
+          max_gap_size = free_size;
+          worst_fit_addr = current_addr;
+        }
+      } else if (strategy == UHP_PLACE_BESTFIT) {
+        if (free_size < min_gap_size) {
+          min_gap_size = free_size;
+          best_fit_addr = current_addr;
+        }
+      } else if (strategy == UHP_PLACE_WORSTFIT) {
+        if (free_size > max_gap_size) {
+          max_gap_size = free_size;
+          worst_fit_addr = current_addr;
+        }
+      } else if (strategy == UHP_PLACE_FIRSTFIT) {
+        best_fit_addr = current_addr;
+        break;
+      }
+    }
+
+    if (found_next)
+      current_addr = next_alloc_addr + next_alloc_size;
+    else
+      break;
+  }
+
+  if (strategy == UHP_PLACE_CUSTOMFIT) {
+    if (best_fit_addr == 0 && worst_fit_addr != 0) {
+      best_fit_addr = worst_fit_addr;
+    }
+  } else if (strategy == UHP_PLACE_WORSTFIT) {
+    best_fit_addr = worst_fit_addr;
+  }
+
+  if (best_fit_addr != 0) {
+    int ret = sys_create_shared_object(sharedVarName, aligned_size, isWritable,
+                                       (void *)best_fit_addr);
+    if (ret < 0)
+      return NULL;
+
+    for (int i = 0; i < allocs; i++) {
+      if (!alloc[i].used) {
+        alloc[i].va = (void *)best_fit_addr;
+        alloc[i].size = aligned_size;
+        alloc[i].used = 1;
+        break;
+      }
+    }
+    return (void *)best_fit_addr;
+  }
+
+  if (aligned_size <= USER_HEAP_MAX - uheapPageAllocBreak) {
+    uint32 alloc_start = uheapPageAllocBreak;
+    int ret = sys_create_shared_object(sharedVarName, aligned_size, isWritable,
+                                       (void *)alloc_start);
+    if (ret < 0)
+      return NULL;
+
+    uheapPageAllocBreak += aligned_size;
+    for (int i = 0; i < allocs; i++) {
+      if (!alloc[i].used) {
+        alloc[i].va = (void *)alloc_start;
+        alloc[i].size = aligned_size;
+        alloc[i].used = 1;
+        break;
+      }
+    }
+    return (void *)alloc_start;
+  }
+
+  return NULL;
 }
 
 //========================================
@@ -317,9 +461,143 @@ void* sget(int32 ownerEnvID, char *sharedVarName)
 	//TODO: [PROJECT'25.IM#3] SHARED MEMORY - #4 sget
 	//Your code is here
 	//Comment the following line
-	panic("sget() is not implemented yet...!!");
-}
+	//panic("sget() is not implemented yet...!!");
+	uint32 size = sys_size_of_shared_object(ownerEnvID, sharedVarName);
+			if (size < 0)
+				return NULL;
 
+				uint32 aligned_size = ROUNDUP(size, PAGE_SIZE);
+				uint32 strategy = sys_get_uheap_strategy();
+				uint32 best_fit_addr = 0;
+				uint32 min_gap_size = 0xFFFFFFFF;
+				uint32 worst_fit_addr = 0;
+				uint32 max_gap_size = 0;
+				uint32 current_addr = uheapPageAllocStart;
+				while (current_addr < uheapPageAllocBreak)
+				{
+					uint32 next_alloc_addr = 0xFFFFFFFF;
+					uint32 next_alloc_size = 0;
+					int found_next = 0;
+
+
+					for (int i = 0; i < allocs; i++)
+					{
+						if (alloc[i].used)
+						{
+							uint32 addr = (uint32)alloc[i].va;
+							if (addr >= current_addr)
+							{
+								if (addr < next_alloc_addr)
+								{
+									next_alloc_addr = addr;
+									next_alloc_size = alloc[i].size;
+									found_next = 1;
+								}
+							}
+						}
+					}
+					uint32 limit;
+					if (found_next) {
+						limit = next_alloc_addr;
+					} else {
+						limit = uheapPageAllocBreak;
+					}
+					uint32 free_size = limit - current_addr;
+					if (free_size >= aligned_size)
+					{
+
+						if (strategy == UHP_PLACE_CUSTOMFIT)
+						{
+							// Exact Fit
+							if (free_size == aligned_size) {
+								best_fit_addr = current_addr;
+								break;
+							}
+
+							//  Worst Fit
+							if (free_size > max_gap_size) {
+								max_gap_size = free_size;
+								worst_fit_addr = current_addr;
+							}
+						}
+						// BEST FIT Strategy
+						else if (strategy == UHP_PLACE_BESTFIT)
+						{
+							if (free_size < min_gap_size) {
+								min_gap_size = free_size;
+								best_fit_addr = current_addr;
+							}
+						}
+						// WORST FIT Strategy
+						else if (strategy == UHP_PLACE_WORSTFIT)
+						{
+							if (free_size > max_gap_size) {
+								max_gap_size = free_size;
+								worst_fit_addr = current_addr;
+							}
+						}
+
+						else if (strategy == UHP_PLACE_FIRSTFIT)
+						{
+							best_fit_addr = current_addr;
+							break;
+						}
+					}
+					if (found_next)
+						current_addr = next_alloc_addr + next_alloc_size;
+					else
+						break;
+				}
+
+				if (strategy == UHP_PLACE_CUSTOMFIT) {
+
+					if (best_fit_addr == 0 && worst_fit_addr != 0) {
+						best_fit_addr = worst_fit_addr;
+					}
+				}
+				else if (strategy == UHP_PLACE_WORSTFIT) {
+					best_fit_addr = worst_fit_addr;
+				}
+
+				if (best_fit_addr != 0) {
+
+					int ret = sys_get_shared_object(ownerEnvID, sharedVarName, (void*)best_fit_addr);
+
+					if (ret < 0) return NULL;
+
+					for (int i = 0; i < allocs; i++){
+						if (!alloc[i].used){
+							alloc[i].va = (void*)best_fit_addr;
+							alloc[i].size = aligned_size;
+							alloc[i].used = 1;
+							break;
+						}
+					}
+					return (void*)best_fit_addr;
+				}
+
+				if (aligned_size <= USER_HEAP_MAX - uheapPageAllocBreak)
+				{
+					uint32 alloc_start = uheapPageAllocBreak;
+
+					int ret = sys_get_shared_object(ownerEnvID, sharedVarName, (void*)alloc_start);
+
+					if (ret < 0) return NULL;
+
+					uheapPageAllocBreak += aligned_size;
+
+					for (int i = 0; i < allocs; i++){
+						if (!alloc[i].used){
+							alloc[i].va = (void*)alloc_start;
+							alloc[i].size = aligned_size;
+							alloc[i].used = 1;
+							break;
+						}
+					}
+					return (void*)alloc_start;
+				}
+				return NULL;
+}
 
 //==================================================================================//
 //============================== BONUS FUNCTIONS ===================================//
@@ -366,11 +644,12 @@ void sfree(void* virtual_address)
 	//TODO: [PROJECT'25.BONUS#5] EXIT #2 - sfree
 	//Your code is here
 	//Comment the following line
-	panic("sfree() is not implemented yet...!!");
+	//panic("sfree() is not implemented yet...!!");
 
 	//	1) you should find the ID of the shared variable at the given address
 	//	2) you need to call sys_freeSharedObject()
 }
+
 
 
 //==================================================================================//

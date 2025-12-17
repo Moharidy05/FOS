@@ -21,7 +21,7 @@
 typedef int bool;
 #define true 1
 #define false 0
-#endif // __cplusplus
+#endif
 
 #endif
 
@@ -520,25 +520,20 @@ void page_fault_handler(struct Env * faulted_env, uint32 fault_va)
 			                    }
 			                }
 
-			                // 5. UPDATE IN PLACE (Critical Fix)
-			                // Do not remove the node. Just update the VA and reset the timestamp.
+
 			                LIST_REMOVE(&(faulted_env->page_WS_list), victim);
-			                // 2. Create new element for the incoming page
+
 			                struct WorkingSetElement *new_ws = env_page_ws_list_create_element(faulted_env, page_va);
-			                // 3. Insert at the position AFTER where victim was (maintaining clock order)
 			                if (next_hand == LIST_FIRST(&(faulted_env->page_WS_list))) {
-			                    // If next_hand is the first, insert at end
-			                    LIST_INSERT_TAIL(&(faulted_env->page_WS_list), new_ws);
-			                } else {
-			                    // Insert before next_hand
+			                   LIST_INSERT_TAIL(&(faulted_env->page_WS_list), new_ws);
+			                }
+			                else {
+
 			                    LIST_INSERT_BEFORE(&(faulted_env->page_WS_list), next_hand, new_ws);
 			                }
-			                // 4. Free the old victim element
-			                kfree(victim);
-			                // 5. Update clock hand
-			                faulted_env->page_last_WS_element = next_hand;
 
-			                // 6. Move clock hand forward
+			                kfree(victim);
+			                faulted_env->page_last_WS_element = next_hand;
 			                faulted_env->page_last_WS_element = next_hand;
 
 			                break;

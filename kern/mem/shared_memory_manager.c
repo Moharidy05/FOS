@@ -107,7 +107,33 @@ struct Share* alloc_share(int32 ownerID, char* shareName, uint32 size, uint8 isW
 	//TODO: [PROJECT'25.IM#3] SHARED MEMORY - #1 alloc_share
 	//Your code is here
 	//Comment the following line
-	panic("alloc_share() is not implemented yet...!!");
+	//panic("alloc_share() is not implemented yet...!!");
+	struct Share* newo = (struct Share*)kmalloc(sizeof(struct Share));
+	if (newo == NULL) {
+		return NULL;
+	}
+
+	//Intilization
+	newo->isWritable = isWritable;
+	newo->references = 1;
+	newo->size = size;
+	newo->ownerID = ownerID;
+	newo->ID = (uint32) newo & 0x7FFFFFFF;
+	strcpy(newo->name, shareName);
+	uint32 num_frames = ROUNDUP(size, PAGE_SIZE) / PAGE_SIZE;
+	//7gz mkan ll frames
+	struct FrameInfo **frames_List=(struct FrameInfo**)kmalloc(num_frames * sizeof(struct FrameInfo*)); //ne frameinfo
+	if (frames_List == NULL) {
+		kfree(newo);
+		cprintf("creating frames list failed");
+		return NULL;
+		}
+	for (int i =0;i<num_frames;i++){  //intilize el frames b NULL zy ma el doc 2al
+		frames_List[i]=NULL;
+	}
+	newo->framesStorage=frames_List;
+
+return newo;
 }
 
 
@@ -119,7 +145,7 @@ int create_shared_object(int32 ownerID, char* shareName, uint32 size, uint8 isWr
 	//TODO: [PROJECT'25.IM#3] SHARED MEMORY - #3 create_shared_object
 	//Your code is here
 	//Comment the following line
-	panic("create_shared_object() is not implemented yet...!!");
+	//panic("create_shared_object() is not implemented yet...!!");
 
 	struct Env* myenv = get_cpu_proc(); //The calling environment
 
@@ -129,6 +155,60 @@ int create_shared_object(int32 ownerID, char* shareName, uint32 size, uint8 isWr
 	//	a) ID of the shared object (its VA after masking out its msb) if success
 	//	b) E_SHARED_MEM_EXISTS if the shared object already exists
 	//	c) E_NO_SHARE if failed to create a shared object
+
+// mnsa4 el locks b3d ma a5ls
+		//Some of checks
+		if (((uint32)virtual_address % PAGE_SIZE) != 0)
+	    return E_NO_SHARE;
+
+		if (shareName == NULL || size == 0 || virtual_address == NULL) {
+			return E_NO_SHARE;
+		}
+
+		acquire_kspinlock(&AllShares.shareslock);
+		// Check if shared object already exists
+		if (find_share(ownerID, shareName) != NULL) {
+			release_kspinlock(&AllShares.shareslock);
+			return E_SHARED_MEM_EXISTS;
+		}
+
+		//  b3ml Allocate ll share object
+		struct Share* new_share = alloc_share(ownerID, shareName, size, isWritable);
+		if (new_share == NULL) {
+				release_kspinlock(&AllShares.shareslock);
+				return E_NO_SHARE;
+			}
+		// b7sb number of frames
+			uint32 num_frames = ROUNDUP(size, PAGE_SIZE) / PAGE_SIZE;
+		// Allocate and map physical frames (72e2y mem)
+		for (uint32 i = 0; i < num_frames; i++) {
+		int alloc_ret=allocate_frame(&new_share->framesStorage[i]);
+			if(alloc_ret!=0){
+			   kfree((void*) new_share);
+			    release_kspinlock(&AllShares.shareslock);
+			    return E_NO_SHARE;
+		}
+
+		   int perm = PERM_PRESENT | PERM_USER | PERM_WRITEABLE;
+
+				// b3ml Map ll frame to virtual address
+				struct FrameInfo * shared_frame_pointer = new_share->framesStorage[i];
+				int map_return=map_frame(myenv->env_page_directory, shared_frame_pointer, (uint32)virtual_address + i * PAGE_SIZE, perm);
+
+				if (map_return != 0) {
+					kfree((void*) new_share);
+					release_kspinlock(&AllShares.shareslock);
+					return E_NO_SHARE;
+					}
+
+				}
+
+				//b7otha b2a fel list
+				LIST_INSERT_HEAD(&AllShares.shares_list, new_share);  //nr
+				release_kspinlock(&AllShares.shareslock);
+
+				return new_share->ID;
+
 }
 
 
@@ -140,7 +220,7 @@ int get_shared_object(int32 ownerID, char* shareName, void* virtual_address)
 	//TODO: [PROJECT'25.IM#3] SHARED MEMORY - #5 get_shared_object
 	//Your code is here
 	//Comment the following line
-	panic("get_shared_object() is not implemented yet...!!");
+	//panic("get_shared_object() is not implemented yet...!!");
 
 	struct Env* myenv = get_cpu_proc(); //The calling environment
 
@@ -150,6 +230,36 @@ int get_shared_object(int32 ownerID, char* shareName, void* virtual_address)
 	// RETURN:
 	//	a) ID of the shared object (its VA after masking out its msb) if success
 	//	b) E_SHARED_MEM_NOT_EXISTS if the shared object is not exists
+
+  // ab7s 3no
+		struct Share* share = find_share(ownerID, shareName);
+		if (share == NULL) {
+
+			return E_SHARED_MEM_NOT_EXISTS;
+		}
+		// a7sb number of frames lw l2eto
+		uint32 num_frames = ROUNDUP(share->size, PAGE_SIZE) / PAGE_SIZE;
+
+		// a4yr el frame m3 el current process
+		for (uint32 i = 0; i < num_frames; i++) {
+			struct FrameInfo* frame_info = share->framesStorage[i];
+			if (frame_info == NULL) {
+				return E_NO_SHARE;
+			}
+			int perm = PERM_PRESENT | PERM_USER;
+			if (share->isWritable) {
+				perm |= PERM_WRITEABLE;
+			}
+			// h3ml b2a Map ll existing frame to the new virtual address
+			int map_return =map_frame(myenv->env_page_directory, frame_info, (uint32)virtual_address + i * PAGE_SIZE, perm);
+				if (map_return != 0) {
+					kfree((void*) share);
+					return E_NO_SHARE;
+				}
+		}
+
+		share->references++;
+		return share->ID;
 
 }
 
